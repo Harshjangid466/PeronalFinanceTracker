@@ -1,299 +1,265 @@
 import { useState, useMemo } from 'react';
 import { useApp } from '@/context/AppContext';
-import { formatCurrency, formatDate, todayISO } from '@/data/format';
-import { Plus, Users, Trash2, History } from 'lucide-react';
+import { formatCurrency, formatDate } from '@/data/format';
+import { Plus, Users, ArrowUpRight, ArrowDownLeft, CheckCircle2, ChevronRight, Search } from 'lucide-react';
 import { Sheet } from '@/components/Sheet';
+import { TransactionForm } from '@/components/TransactionForm';
+import { PersonLedgerModal } from '@/components/PersonLedgerModal';
+import type { Transaction } from '@/data/types';
 
 export function RecoverScreen() {
-  const { data, addReceivable, addRepayment, getReceivableOutstanding, getReceivableRecovered, deleteReceivable } = useApp();
-  const [showAdd, setShowAdd] = useState(false);
-  const [showRepay, setShowRepay] = useState(false);
-  const [showHistory, setShowHistory] = useState(false);
-  const [selectedReceivableId, setSelectedReceivableId] = useState<string | null>(null);
+  const { getAllPersonLedgers } = useApp();
+  const [search, setSearch] = useState('');
+  const [filterTab, setFilterTab] = useState<'all' | 'owes_me' | 'i_owe' | 'settled'>('all');
 
-  // Add form
-  const [person, setPerson] = useState('');
-  const [amount, setAmount] = useState('');
-  const [date, setDate] = useState(todayISO());
-  const [reason, setReason] = useState('');
-  const [account, setAccount] = useState(data.accounts[0] ?? '');
+  // Modals
+  const [activeFormType, setActiveFormType] = useState<'Lent' | 'Lent Recovered' | null>(null);
+  const [selectedPerson, setSelectedPerson] = useState<string | null>(null);
+  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
 
-  // Repay form
-  const [repayAmount, setRepayAmount] = useState('');
-  const [repayDate, setRepayDate] = useState(todayISO());
-  const [repayAccount, setRepayAccount] = useState(data.accounts[0] ?? '');
-  const [repayRemarks, setRepayRemarks] = useState('');
+  const allLedgers = useMemo(() => getAllPersonLedgers(), [getAllPersonLedgers]);
 
-  const totalToRecover = useMemo(
-    () => data.receivables.reduce((sum, r) => sum + Math.max(0, getReceivableOutstanding(r.id)), 0),
-    [data.receivables, data.repayments]
-  );
-  const totalRecovered = useMemo(
-    () => data.repayments.reduce((sum, r) => sum + r.amount, 0),
-    [data.repayments]
-  );
-  const outstanding = totalToRecover;
+  // Overall totals across ledgers
+  const totals = useMemo(() => {
+    let totalLent = 0;
+    let totalRecovered = 0;
+    let netReceivable = 0; // people who owe me
+    let netPayable = 0; // people I owe
 
-  // Group by person
-  const personOutstanding = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const r of data.receivables) {
-      const out = Math.max(0, getReceivableOutstanding(r.id));
-      map.set(r.person, (map.get(r.person) ?? 0) + out);
+    for (const l of allLedgers) {
+      totalLent += l.totalLent;
+      totalRecovered += l.totalRecovered;
+      if (l.netBalance > 0) {
+        netReceivable += l.netBalance;
+      } else if (l.netBalance < 0) {
+        netPayable += Math.abs(l.netBalance);
+      }
     }
-    return Array.from(map.entries()).sort((a, b) => b[1] - a[1]);
-  }, [data.receivables, data.repayments]);
 
-  function handleAddReceivable() {
-    if (!person.trim() || !amount) return;
-    addReceivable({
-      person: person.trim(),
-      amount: parseFloat(amount),
-      date,
-      reason: reason.trim(),
-      account,
+    return { totalLent, totalRecovered, netReceivable, netPayable };
+  }, [allLedgers]);
+
+  const filteredLedgers = useMemo(() => {
+    return allLedgers.filter((l) => {
+      if (search && !l.person.toLowerCase().includes(search.toLowerCase())) return false;
+      if (filterTab === 'owes_me' && l.netBalance <= 0) return false;
+      if (filterTab === 'i_owe' && l.netBalance >= 0) return false;
+      if (filterTab === 'settled' && l.netBalance !== 0) return false;
+      return true;
     });
-    setPerson('');
-    setAmount('');
-    setReason('');
-    setDate(todayISO());
-    setShowAdd(false);
-  }
-
-  function handleAddRepayment() {
-    if (!selectedReceivableId || !repayAmount) return;
-    addRepayment({
-      receivableId: selectedReceivableId,
-      amount: parseFloat(repayAmount),
-      date: repayDate,
-      account: repayAccount,
-      remarks: repayRemarks.trim(),
-    });
-    setRepayAmount('');
-    setRepayRemarks('');
-    setRepayDate(todayISO());
-    setShowRepay(false);
-  }
-
-  const selectedReceivable = data.receivables.find((r) => r.id === selectedReceivableId);
-  const selectedRepayments = data.repayments.filter((r) => r.receivableId === selectedReceivableId);
+  }, [allLedgers, search, filterTab]);
 
   return (
-    <div className="px-4 pt-6 pb-24 max-w-md mx-auto">
-      <div className="flex items-center justify-between mb-4">
-        <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Recover</h1>
-        <button
-          onClick={() => setShowAdd(true)}
-          className="flex items-center gap-1 px-3 py-2 rounded-xl bg-cyan-600 text-white text-sm font-medium active:scale-95 transition-transform"
-        >
-          <Plus size={18} /> Add
-        </button>
-      </div>
+    <div className="px-4 pt-6 pb-28 max-w-md mx-auto space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Receivables</h1>
+          <p className="text-xs text-slate-500 dark:text-slate-400">Unified Person-wise Ledgers</p>
+        </div>
 
-      {/* Summary */}
-      <div className="grid grid-cols-3 gap-2 mb-5">
-        <div className="bg-white dark:bg-slate-800 rounded-2xl p-3 border border-slate-100 dark:border-slate-700">
-          <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">Total</p>
-          <p className="text-base font-bold text-slate-900 dark:text-slate-100">{formatCurrency(totalToRecover)}</p>
-        </div>
-        <div className="bg-white dark:bg-slate-800 rounded-2xl p-3 border border-slate-100 dark:border-slate-700">
-          <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">Recovered</p>
-          <p className="text-base font-bold text-green-600 dark:text-green-400">{formatCurrency(totalRecovered)}</p>
-        </div>
-        <div className="bg-white dark:bg-slate-800 rounded-2xl p-3 border border-slate-100 dark:border-slate-700">
-          <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">Outstanding</p>
-          <p className="text-base font-bold text-red-600 dark:text-red-400">{formatCurrency(outstanding)}</p>
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => setActiveFormType('Lent')}
+            className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-cyan-600 text-white text-xs font-semibold active:scale-95 transition-transform"
+          >
+            <ArrowUpRight size={14} /> Lent
+          </button>
+          <button
+            onClick={() => setActiveFormType('Lent Recovered')}
+            className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-emerald-600 text-white text-xs font-semibold active:scale-95 transition-transform"
+          >
+            <ArrowDownLeft size={14} /> Recovered
+          </button>
         </div>
       </div>
 
-      {/* Person-wise outstanding */}
-      {personOutstanding.length > 0 && (
-        <div className="mb-5">
-          <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">Person-wise Outstanding</h2>
-          <div className="space-y-2">
-            {personOutstanding.map(([p, amt]) => (
-              <div key={p} className="flex items-center justify-between bg-white dark:bg-slate-800 rounded-xl p-3 border border-slate-100 dark:border-slate-700">
-                <div className="flex items-center gap-2">
-                  <Users size={16} className="text-slate-400" />
-                  <span className="text-sm font-medium text-slate-700 dark:text-slate-300">{p}</span>
-                </div>
-                <span className="text-sm font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(amt)}</span>
-              </div>
-            ))}
+      {/* Summary Cards */}
+      <div className="grid grid-cols-2 gap-2.5">
+        <div className="bg-gradient-to-br from-emerald-600 to-teal-700 rounded-2xl p-3.5 text-white shadow-sm">
+          <p className="text-[11px] text-emerald-100 font-medium">Net To Recover (Owed to you)</p>
+          <p className="text-2xl font-extrabold mt-0.5">{formatCurrency(totals.netReceivable)}</p>
+          <p className="text-[10px] text-emerald-200 mt-1">Total Lent: {formatCurrency(totals.totalLent)}</p>
+        </div>
+
+        <div className="bg-white dark:bg-slate-800 rounded-2xl p-3.5 border border-slate-100 dark:border-slate-700 shadow-sm">
+          <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">Total Recovered</p>
+          <p className="text-2xl font-extrabold text-slate-900 dark:text-slate-100 mt-0.5">
+            {formatCurrency(totals.totalRecovered)}
+          </p>
+          {totals.netPayable > 0 ? (
+            <p className="text-[10px] text-rose-500 font-semibold mt-1">
+              You owe: {formatCurrency(totals.netPayable)}
+            </p>
+          ) : (
+            <p className="text-[10px] text-emerald-500 font-semibold mt-1">No pending payables</p>
+          )}
+        </div>
+      </div>
+
+      {/* Search and Tabs */}
+      <div className="space-y-2">
+        <div className="relative">
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search person..."
+            className="w-full pl-9 pr-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-cyan-500 text-xs"
+          />
+        </div>
+
+        <div className="flex items-center gap-1 overflow-x-auto no-scrollbar pb-0.5">
+          {[
+            { id: 'all', label: `All (${allLedgers.length})` },
+            { id: 'owes_me', label: `Owes Me (${allLedgers.filter((l) => l.netBalance > 0).length})` },
+            { id: 'i_owe', label: `I Owe (${allLedgers.filter((l) => l.netBalance < 0).length})` },
+            { id: 'settled', label: `Settled (${allLedgers.filter((l) => l.netBalance === 0).length})` },
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setFilterTab(tab.id as any)}
+              className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-colors ${
+                filterTab === tab.id
+                  ? 'bg-cyan-600 text-white'
+                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Person Ledgers List */}
+      <div className="space-y-2">
+        {filteredLedgers.length === 0 ? (
+          <div className="bg-white dark:bg-slate-800 rounded-2xl p-8 text-center border border-slate-100 dark:border-slate-700">
+            <p className="text-sm text-slate-400 dark:text-slate-500 mb-2">No people found.</p>
+            <p className="text-xs text-slate-400 dark:text-slate-500">
+              Record a "Lent" transaction to start tracking balances.
+            </p>
           </div>
-        </div>
-      )}
+        ) : (
+          filteredLedgers.map((l) => {
+            const isOwed = l.netBalance > 0;
+            const isPayable = l.netBalance < 0;
+            const isSettled = l.netBalance === 0;
 
-      {/* Receivables list */}
-      <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">All Receivables</h2>
-      {data.receivables.length === 0 ? (
-        <p className="text-sm text-slate-400 dark:text-slate-500 text-center py-8">
-          No receivables yet. Tap "Add" to record money you paid for someone.
-        </p>
-      ) : (
-        <div className="space-y-2">
-          {data.receivables.map((r) => {
-            const recovered = getReceivableRecovered(r.id);
-            const out = getReceivableOutstanding(r.id);
-            const isFullyRecovered = out <= 0;
             return (
               <div
-                key={r.id}
-                className={`bg-white dark:bg-slate-800 rounded-xl p-3 border ${
-                  isFullyRecovered
-                    ? 'border-green-200 dark:border-green-800'
-                    : 'border-slate-100 dark:border-slate-700'
-                }`}
+                key={l.person}
+                onClick={() => setSelectedPerson(l.person)}
+                className="bg-white dark:bg-slate-800 rounded-2xl p-3.5 border border-slate-100 dark:border-slate-700 hover:border-cyan-500 transition-colors cursor-pointer shadow-sm"
               >
-                <div className="flex items-start justify-between">
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-slate-800 dark:text-slate-200">{r.person}</p>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                      {formatDate(r.date)} · {formatCurrency(r.amount)}
-                    </p>
-                    {r.reason && <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">{r.reason}</p>}
-                    <div className="flex items-center gap-3 mt-1.5">
-                      <span className="text-xs text-green-600 dark:text-green-400">Recovered: {formatCurrency(recovered)}</span>
-                      <span className="text-xs text-red-600 dark:text-red-400">Outstanding: {formatCurrency(Math.max(0, out))}</span>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div
+                      className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-sm ${
+                        isOwed
+                          ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300'
+                          : isPayable
+                          ? 'bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300'
+                          : 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300'
+                      }`}
+                    >
+                      {l.person.charAt(0).toUpperCase()}
+                    </div>
+                    <div>
+                      <p className="text-sm font-bold text-slate-800 dark:text-slate-200">{l.person}</p>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                        {l.transactions.length} transactions · Lent {formatCurrency(l.totalLent)}
+                      </p>
                     </div>
                   </div>
-                  <button
-                    onClick={() => deleteReceivable(r.id)}
-                    className="p-1 text-slate-300 dark:text-slate-600 hover:text-red-500"
-                  >
-                    <Trash2 size={16} />
-                  </button>
+
+                  <div className="flex items-center gap-1.5">
+                    <div className="text-right">
+                      <p
+                        className={`text-sm font-extrabold ${
+                          isOwed
+                            ? 'text-emerald-600 dark:text-emerald-400'
+                            : isPayable
+                            ? 'text-rose-600 dark:text-rose-400'
+                            : 'text-slate-500'
+                        }`}
+                      >
+                        {isOwed ? '+' : ''}
+                        {formatCurrency(l.netBalance)}
+                      </p>
+                      <p className="text-[10px] font-semibold text-slate-400">
+                        {isOwed ? 'Owes you' : isPayable ? 'You owe' : 'Settled'}
+                      </p>
+                    </div>
+                    <ChevronRight size={16} className="text-slate-400 shrink-0" />
+                  </div>
                 </div>
-                {!isFullyRecovered && (
-                  <div className="flex gap-2 mt-2">
-                    <button
-                      onClick={() => {
-                        setSelectedReceivableId(r.id);
-                        setRepayAmount('');
-                        setRepayDate(todayISO());
-                        setRepayAccount(r.account);
-                        setShowRepay(true);
+
+                {/* Mini progress bar showing recovery ratio */}
+                {l.totalLent > 0 && (
+                  <div className="mt-2.5 h-1.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-emerald-500 rounded-full transition-all"
+                      style={{
+                        width: `${Math.min(100, (l.totalRecovered / l.totalLent) * 100)}%`,
                       }}
-                      className="flex-1 py-2 rounded-lg bg-cyan-600 text-white text-xs font-semibold active:scale-95 transition-transform"
-                    >
-                      Record Repayment
-                    </button>
-                    <button
-                      onClick={() => {
-                        setSelectedReceivableId(r.id);
-                        setShowHistory(true);
-                      }}
-                      className="px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 text-xs font-medium"
-                    >
-                      <History size={16} />
-                    </button>
+                    />
                   </div>
                 )}
-                {/* Progress bar */}
-                <div className="mt-2 h-1.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-green-500 rounded-full transition-all"
-                    style={{ width: `${r.amount > 0 ? (recovered / r.amount) * 100 : 0}%` }}
-                  />
-                </div>
               </div>
             );
-          })}
-        </div>
-      )}
+          })
+        )}
+      </div>
 
-      {/* Add receivable sheet */}
-      <Sheet open={showAdd} onClose={() => setShowAdd(false)} title="New Receivable">
-        <div className="space-y-4">
-          <div>
-            <label className="text-sm font-medium text-slate-700 dark:text-slate-300 block mb-1.5">Person *</label>
-            <input type="text" value={person} onChange={(e) => setPerson(e.target.value)} placeholder="Who owes you?" className="w-full px-4 py-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-cyan-500" />
-          </div>
-          <div>
-            <label className="text-sm font-medium text-slate-700 dark:text-slate-300 block mb-1.5">Amount *</label>
-            <input type="number" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" className="w-full px-4 py-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-cyan-500 text-xl font-bold" />
-          </div>
-          <div>
-            <label className="text-sm font-medium text-slate-700 dark:text-slate-300 block mb-1.5">Date</label>
-            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="w-full px-4 py-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-cyan-500" />
-          </div>
-          <div>
-            <label className="text-sm font-medium text-slate-700 dark:text-slate-300 block mb-1.5">Reason</label>
-            <input type="text" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="What was it for?" className="w-full px-4 py-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-cyan-500" />
-          </div>
-          <div>
-            <label className="text-sm font-medium text-slate-700 dark:text-slate-300 block mb-1.5">Payment Account</label>
-            <select value={account} onChange={(e) => setAccount(e.target.value)} className="w-full px-4 py-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-cyan-500">
-              {data.accounts.map((a) => <option key={a} value={a}>{a}</option>)}
-            </select>
-          </div>
-          <button onClick={handleAddReceivable} disabled={!person.trim() || !amount} className="w-full py-3 rounded-xl bg-cyan-600 text-white font-semibold active:scale-[0.98] transition-transform disabled:opacity-40">
-            Save Receivable
-          </button>
-          <p className="text-xs text-slate-400 dark:text-slate-500 text-center">
-            This will be recorded as "Money Lent" and will NOT count as your personal expense.
-          </p>
-        </div>
+      {/* Lent / Recovered Entry Modal */}
+      <Sheet
+        open={Boolean(activeFormType)}
+        onClose={() => setActiveFormType(null)}
+        title={`New ${activeFormType || ''}`}
+      >
+        {activeFormType && (
+          <TransactionForm
+            initialType={activeFormType}
+            isModal={true}
+            onSuccess={() => setActiveFormType(null)}
+            onClose={() => setActiveFormType(null)}
+          />
+        )}
       </Sheet>
 
-      {/* Repayment sheet */}
-      <Sheet open={showRepay} onClose={() => setShowRepay(false)} title={`Repayment from ${selectedReceivable?.person ?? ''}`}>
-        <div className="space-y-4">
-          <div className="bg-slate-50 dark:bg-slate-800 rounded-xl p-3 border border-slate-200 dark:border-slate-700">
-            <div className="flex justify-between text-sm">
-              <span className="text-slate-500 dark:text-slate-400">Total</span>
-              <span className="font-semibold text-slate-800 dark:text-slate-200">{formatCurrency(selectedReceivable?.amount ?? 0)}</span>
-            </div>
-            <div className="flex justify-between text-sm mt-1">
-              <span className="text-green-600 dark:text-green-400">Recovered</span>
-              <span className="font-semibold">{formatCurrency(selectedReceivable ? getReceivableRecovered(selectedReceivable.id) : 0)}</span>
-            </div>
-            <div className="flex justify-between text-sm mt-1">
-              <span className="text-red-600 dark:text-red-400">Outstanding</span>
-              <span className="font-semibold">{formatCurrency(selectedReceivable ? Math.max(0, getReceivableOutstanding(selectedReceivable.id)) : 0)}</span>
-            </div>
-          </div>
-          <div>
-            <label className="text-sm font-medium text-slate-700 dark:text-slate-300 block mb-1.5">Repay Amount *</label>
-            <input type="number" inputMode="decimal" value={repayAmount} onChange={(e) => setRepayAmount(e.target.value)} placeholder="0" className="w-full px-4 py-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-cyan-500 text-xl font-bold" />
-          </div>
-          <div>
-            <label className="text-sm font-medium text-slate-700 dark:text-slate-300 block mb-1.5">Date</label>
-            <input type="date" value={repayDate} onChange={(e) => setRepayDate(e.target.value)} className="w-full px-4 py-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-cyan-500" />
-          </div>
-          <div>
-            <label className="text-sm font-medium text-slate-700 dark:text-slate-300 block mb-1.5">Received In</label>
-            <select value={repayAccount} onChange={(e) => setRepayAccount(e.target.value)} className="w-full px-4 py-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-cyan-500">
-              {data.accounts.map((a) => <option key={a} value={a}>{a}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="text-sm font-medium text-slate-700 dark:text-slate-300 block mb-1.5">Remarks</label>
-            <input type="text" value={repayRemarks} onChange={(e) => setRepayRemarks(e.target.value)} placeholder="Optional" className="w-full px-4 py-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-cyan-500" />
-          </div>
-          <button onClick={handleAddRepayment} disabled={!repayAmount} className="w-full py-3 rounded-xl bg-cyan-600 text-white font-semibold active:scale-[0.98] transition-transform disabled:opacity-40">
-            Record Repayment
-          </button>
-        </div>
-      </Sheet>
+      {/* Person Unified Ledger Modal */}
+      <PersonLedgerModal
+        person={selectedPerson}
+        onClose={() => setSelectedPerson(null)}
+        onLendMore={(p) => {
+          setSelectedPerson(null);
+          setActiveFormType('Lent');
+        }}
+        onRecordRecovery={(p) => {
+          setSelectedPerson(null);
+          setActiveFormType('Lent Recovered');
+        }}
+        onEditTransaction={(txn) => {
+          setSelectedPerson(null);
+          setEditingTransaction(txn);
+        }}
+      />
 
-      {/* History sheet */}
-      <Sheet open={showHistory} onClose={() => setShowHistory(false)} title={`History - ${selectedReceivable?.person ?? ''}`}>
-        {selectedRepayments.length === 0 ? (
-          <p className="text-sm text-slate-400 dark:text-slate-500 text-center py-8">No repayments recorded yet.</p>
-        ) : (
-          <div className="space-y-2">
-            {selectedRepayments.map((r) => (
-              <div key={r.id} className="flex items-center justify-between bg-slate-50 dark:bg-slate-800 rounded-xl p-3 border border-slate-200 dark:border-slate-700">
-                <div>
-                  <p className="text-sm font-medium text-slate-800 dark:text-slate-200">{formatCurrency(r.amount)}</p>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">{formatDate(r.date)} · {r.account}</p>
-                  {r.remarks && <p className="text-xs text-slate-400 dark:text-slate-500">{r.remarks}</p>}
-                </div>
-                <span className="text-xs font-medium text-green-600 dark:text-green-400">Received</span>
-              </div>
-            ))}
-          </div>
+      {/* Edit Transaction Modal */}
+      <Sheet
+        open={Boolean(editingTransaction)}
+        onClose={() => setEditingTransaction(null)}
+        title={`Edit ${editingTransaction?.type || 'Transaction'}`}
+      >
+        {editingTransaction && (
+          <TransactionForm
+            editTransaction={editingTransaction}
+            isModal={true}
+            onSuccess={() => setEditingTransaction(null)}
+            onClose={() => setEditingTransaction(null)}
+          />
         )}
       </Sheet>
     </div>

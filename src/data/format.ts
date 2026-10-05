@@ -76,3 +76,23 @@ export function addYears(iso: string, years: number): string {
   const local = new Date(d.getTime() - off * 60000);
   return local.toISOString().slice(0, 10);
 }
+
+export function toPaise(rupees: number): number {
+  return Math.round((Number(rupees) || 0) * 100);
+}
+
+export function toRupees(paise: number): number {
+  return (Number(paise) || 0) / 100;
+}
+
+export function getMonthStart(iso: string = todayISO()): string {
+  return iso.slice(0, 7) + '-01';
+}
+
+export function getPreviousMonthStart(iso: string = todayISO()): string {
+  return addMonths(iso.slice(0, 7) + '-01', -1);
+}
+
+export function getYearStart(iso: string = todayISO()): string {
+  return iso.slice(0, 4) + '-01-01';
+}

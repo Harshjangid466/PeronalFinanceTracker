@@ -1,34 +1,36 @@
 import { useState, useMemo } from 'react';
 import { useApp } from '@/context/AppContext';
 import type { Frequency, TransactionType } from '@/data/types';
+import { CORE_TRANSACTION_TYPES } from '@/data/types';
 import { formatCurrency, formatDate, formatDateShort, daysFromToday, todayISO } from '@/data/format';
-import { Plus, Repeat, Trash2, Check, SkipForward, Calendar } from 'lucide-react';
+import { Plus, Repeat, Trash2, Check, SkipForward, Calendar, Pause, Play, Clock } from 'lucide-react';
 import { Sheet } from '@/components/Sheet';
 
 export function RecurringScreen() {
-  const { data, addRecurring, deleteRecurring, postRecurring, skipRecurring } = useApp();
+  const { data, addRecurring, updateRecurring, deleteRecurring, postRecurring, skipRecurring } = useApp();
   const [showAdd, setShowAdd] = useState(false);
 
   // Form state
   const [description, setDescription] = useState('');
   const [amount, setAmount] = useState('');
-  const [type, setType] = useState<TransactionType>('Expense');
-  const [majorCategory, setMajorCategory] = useState(data.categories[0]?.name ?? '');
+  const [type, setType] = useState<TransactionType>('Revenue Expense');
+  const [majorCategory, setMajorCategory] = useState(data.categories[0]?.name ?? 'Bills & Utilities');
   const [subCategory, setSubCategory] = useState('');
   const [account, setAccount] = useState(data.accounts[0] ?? '');
-  const [paymentMode, setPaymentMode] = useState(data.paymentModes[0] ?? '');
+  const [paymentMode, setPaymentMode] = useState(data.paymentModes[0] ?? 'UPI');
   const [frequency, setFrequency] = useState<Frequency>('Monthly');
   const [customIntervalDays, setCustomIntervalDays] = useState('');
   const [startDate, setStartDate] = useState(todayISO());
   const [endDate, setEndDate] = useState('');
-  const [automaticPosting, setAutomaticPosting] = useState(false);
+  const [automaticPosting, setAutomaticPosting] = useState(true);
+  const [remarks, setRemarks] = useState('');
 
   const subCategories = data.categories.find((c) => c.name === majorCategory)?.subCategories ?? [];
 
   const upcoming = useMemo(
     () =>
       data.recurring
-        .filter((r) => daysFromToday(r.nextDueDate) >= 0)
+        .filter((r) => r.status !== 'Cancelled' && r.status !== 'Paused')
         .sort((a, b) => a.nextDueDate.localeCompare(b.nextDueDate)),
     [data.recurring]
   );
@@ -41,16 +43,17 @@ export function RecurringScreen() {
   function resetForm() {
     setDescription('');
     setAmount('');
-    setType('Expense');
-    setMajorCategory(data.categories[0]?.name ?? '');
+    setType('Revenue Expense');
+    setMajorCategory(data.categories[0]?.name ?? 'Bills & Utilities');
     setSubCategory('');
     setAccount(data.accounts[0] ?? '');
-    setPaymentMode(data.paymentModes[0] ?? '');
+    setPaymentMode(data.paymentModes[0] ?? 'UPI');
     setFrequency('Monthly');
     setCustomIntervalDays('');
     setStartDate(todayISO());
     setEndDate('');
-    setAutomaticPosting(false);
+    setAutomaticPosting(true);
+    setRemarks('');
   }
 
   function handleAdd() {
@@ -68,61 +71,110 @@ export function RecurringScreen() {
       startDate,
       endDate: endDate || undefined,
       automaticPosting,
+      remarks: remarks.trim(),
+      status: 'Scheduled',
     });
     resetForm();
     setShowAdd(false);
   }
 
+  function togglePause(r: any) {
+    const nextStatus = r.status === 'Paused' ? 'Scheduled' : 'Paused';
+    updateRecurring(r.id, { status: nextStatus });
+  }
+
   return (
-    <div className="px-4 pt-6 pb-24 max-w-md mx-auto">
-      <div className="flex items-center justify-between mb-4">
-        <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Recurring</h1>
+    <div className="px-4 pt-6 pb-28 max-w-md mx-auto space-y-5">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Recurring</h1>
+          <p className="text-xs text-slate-500 dark:text-slate-400">EMIs, Subscriptions & Mandates</p>
+        </div>
         <button
           onClick={() => setShowAdd(true)}
-          className="flex items-center gap-1 px-3 py-2 rounded-xl bg-cyan-600 text-white text-sm font-medium active:scale-95 transition-transform"
+          className="flex items-center gap-1 px-3 py-2 rounded-xl bg-cyan-600 text-white text-xs font-semibold active:scale-95 transition-transform"
         >
-          <Plus size={18} /> Add
+          <Plus size={16} /> Add Schedule
         </button>
       </div>
 
-      {/* Upcoming section */}
-      <div className="mb-5">
+      {/* Upcoming Section */}
+      <div>
         <div className="flex items-center gap-2 mb-2">
-          <Calendar size={18} className="text-slate-500 dark:text-slate-400" />
-          <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-300">Upcoming</h2>
+          <Calendar size={16} className="text-cyan-600 dark:text-cyan-400" />
+          <h2 className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+            Due Soon ({upcoming.length})
+          </h2>
         </div>
+
         {upcoming.length === 0 ? (
-          <p className="text-sm text-slate-400 dark:text-slate-500 px-1">No upcoming recurring payments.</p>
+          <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 text-center border border-slate-100 dark:border-slate-700">
+            <p className="text-xs text-slate-400 dark:text-slate-500">No upcoming recurring mandates scheduled.</p>
+          </div>
         ) : (
           <div className="space-y-2">
-            {upcoming.map((r) => {
+            {upcoming.slice(0, 5).map((r) => {
               const days = daysFromToday(r.nextDueDate);
+              const isDueToday = days === 0;
+              const isOverdue = days < 0;
+
               return (
-                <div key={r.id} className="bg-white dark:bg-slate-800 rounded-xl p-3 border border-slate-100 dark:border-slate-700">
+                <div
+                  key={r.id}
+                  className="bg-white dark:bg-slate-800 rounded-2xl p-3.5 border border-slate-100 dark:border-slate-700 shadow-sm"
+                >
                   <div className="flex items-start justify-between">
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-slate-800 dark:text-slate-200">{r.description}</p>
-                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                        {days === 0 ? 'Due today' : days === 1 ? 'Due tomorrow' : `Due in ${days} days`} · {formatDateShort(r.nextDueDate)} · {r.frequency}
+                      <div className="flex items-center gap-1.5">
+                        <span
+                          className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
+                            isOverdue
+                              ? 'bg-rose-100 text-rose-700'
+                              : isDueToday
+                              ? 'bg-amber-100 text-amber-700'
+                              : 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/40 dark:text-cyan-300'
+                          }`}
+                        >
+                          {isOverdue ? 'Overdue' : isDueToday ? 'Due Today' : `In ${days} days`}
+                        </span>
+                        <p className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate">
+                          {r.description}
+                        </p>
+                      </div>
+
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+                        Due: {formatDate(r.nextDueDate)} · {r.frequency}
+                        {r.automaticPosting ? ' · Auto-post enabled' : ' · Manual'}
                       </p>
-                      <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
-                        {r.majorCategory}{r.subCategory ? ` → ${r.subCategory}` : ''} · {r.account}
+                      <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">
+                        {r.majorCategory} · {r.account || r.paymentMode}
                       </p>
                     </div>
-                    <span className="text-sm font-semibold text-slate-700 dark:text-slate-300 shrink-0 ml-2">{formatCurrency(r.amount)}</span>
+
+                    <span className="text-sm font-extrabold text-slate-900 dark:text-slate-100 shrink-0 ml-2">
+                      {formatCurrency(r.amount)}
+                    </span>
                   </div>
-                  <div className="flex gap-2 mt-2">
+
+                  <div className="flex gap-2 mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-700/60">
                     <button
                       onClick={() => postRecurring(r.id)}
-                      className="flex-1 py-2 rounded-lg bg-cyan-600 text-white text-xs font-semibold active:scale-95 transition-transform flex items-center justify-center gap-1"
+                      className="flex-1 py-1.5 rounded-xl bg-cyan-600 text-white text-xs font-semibold active:scale-95 transition-transform flex items-center justify-center gap-1"
                     >
                       <Check size={14} /> Post Now
                     </button>
                     <button
                       onClick={() => skipRecurring(r.id)}
-                      className="px-3 py-2 rounded-lg bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 text-xs font-medium flex items-center gap-1"
+                      className="px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 text-xs font-medium flex items-center gap-1"
                     >
                       <SkipForward size={14} /> Skip
+                    </button>
+                    <button
+                      onClick={() => togglePause(r)}
+                      title={r.status === 'Paused' ? 'Resume' : 'Pause'}
+                      className="px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 text-xs"
+                    >
+                      {r.status === 'Paused' ? <Play size={14} /> : <Pause size={14} />}
                     </button>
                   </div>
                 </div>
@@ -132,122 +184,276 @@ export function RecurringScreen() {
         )}
       </div>
 
-      {/* All recurring */}
+      {/* All Mandates */}
       <div>
         <div className="flex items-center gap-2 mb-2">
-          <Repeat size={18} className="text-slate-500 dark:text-slate-400" />
-          <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-300">All Recurring ({data.recurring.length})</h2>
+          <Repeat size={16} className="text-cyan-600 dark:text-cyan-400" />
+          <h2 className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+            All Recurring Mandates ({allRecurring.length})
+          </h2>
         </div>
+
         {allRecurring.length === 0 ? (
-          <p className="text-sm text-slate-400 dark:text-slate-500 text-center py-8">
-            No recurring transactions yet. Tap "Add" to create one.
-          </p>
+          <p className="text-xs text-slate-400 py-4 text-center">No mandates configured.</p>
         ) : (
           <div className="space-y-2">
             {allRecurring.map((r) => (
-              <div key={r.id} className="flex items-start justify-between bg-white dark:bg-slate-800 rounded-xl p-3 border border-slate-100 dark:border-slate-700 group">
+              <div
+                key={r.id}
+                className="flex items-start justify-between bg-white dark:bg-slate-800 rounded-2xl p-3 border border-slate-100 dark:border-slate-700 group shadow-sm"
+              >
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-slate-800 dark:text-slate-200">{r.description}</p>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                    {formatCurrency(r.amount)} · {r.frequency} · Next: {formatDate(r.nextDueDate)}
+                  <div className="flex items-center gap-2">
+                    <p className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate">
+                      {r.description}
+                    </p>
+                    {r.status === 'Paused' && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-semibold">
+                        Paused
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                    {formatCurrency(r.amount)} · {r.frequency} · Next: {formatDateShort(r.nextDueDate)}
                   </p>
-                  <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
-                    {r.majorCategory}{r.subCategory ? ` → ${r.subCategory}` : ''} · {r.account}
-                    {r.automaticPosting ? ' · Auto' : ''}
+                  <p className="text-[10px] text-slate-400 dark:text-slate-500">
+                    {r.majorCategory} · {r.account}
                   </p>
                 </div>
-                <button
-                  onClick={() => deleteRecurring(r.id)}
-                  className="p-1 text-slate-300 dark:text-slate-600 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
-                >
-                  <Trash2 size={16} />
-                </button>
+
+                <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                  <button
+                    onClick={() => togglePause(r)}
+                    className="p-1.5 text-slate-400 hover:text-cyan-600"
+                  >
+                    {r.status === 'Paused' ? <Play size={15} /> : <Pause size={15} />}
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (window.confirm('Delete this recurring mandate?')) {
+                        deleteRecurring(r.id);
+                      }
+                    }}
+                    className="p-1.5 text-slate-400 hover:text-red-500"
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                </div>
               </div>
             ))}
           </div>
         )}
       </div>
 
-      {/* Add recurring sheet */}
-      <Sheet open={showAdd} onClose={() => setShowAdd(false)} title="New Recurring Payment">
-        <div className="space-y-4">
+      {/* Add Recurring Sheet */}
+      <Sheet open={showAdd} onClose={() => setShowAdd(false)} title="New Recurring Mandate">
+        <div className="space-y-3">
           <div>
-            <label className="text-sm font-medium text-slate-700 dark:text-slate-300 block mb-1.5">Description *</label>
-            <input type="text" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="e.g. Internet Bill" className="w-full px-4 py-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-cyan-500" />
+            <label className="text-xs font-semibold text-slate-600 dark:text-slate-400 block mb-1">
+              Description *
+            </label>
+            <input
+              type="text"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="e.g. WiFi Bill, Netflix, House Rent, EMI"
+              className="w-full px-3 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 outline-none text-sm"
+            />
           </div>
+
           <div>
-            <label className="text-sm font-medium text-slate-700 dark:text-slate-300 block mb-1.5">Amount *</label>
-            <input type="number" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" className="w-full px-4 py-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-cyan-500 text-xl font-bold" />
+            <label className="text-xs font-semibold text-slate-600 dark:text-slate-400 block mb-1">
+              Amount (₹) *
+            </label>
+            <input
+              type="number"
+              inputMode="decimal"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              placeholder="0"
+              className="w-full px-3 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 outline-none text-base font-bold"
+            />
           </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-xs font-semibold text-slate-600 dark:text-slate-400 block mb-1">
+                Type
+              </label>
+              <select
+                value={type}
+                onChange={(e) => setType(e.target.value as TransactionType)}
+                className="w-full px-3 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 outline-none text-xs"
+              >
+                {CORE_TRANSACTION_TYPES.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-slate-600 dark:text-slate-400 block mb-1">
+                Frequency *
+              </label>
+              <select
+                value={frequency}
+                onChange={(e) => setFrequency(e.target.value as Frequency)}
+                className="w-full px-3 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 outline-none text-xs"
+              >
+                {(['Weekly', 'Monthly', 'Quarterly', 'Half-yearly', 'Yearly', 'Custom'] as Frequency[]).map(
+                  (f) => (
+                    <option key={f} value={f}>
+                      {f}
+                    </option>
+                  )
+                )}
+              </select>
+            </div>
+          </div>
+
+          {frequency === 'Custom' && (
+            <div>
+              <label className="text-xs font-semibold text-slate-600 dark:text-slate-400 block mb-1">
+                Custom Interval (Days)
+              </label>
+              <input
+                type="number"
+                value={customIntervalDays}
+                onChange={(e) => setCustomIntervalDays(e.target.value)}
+                placeholder="e.g. 15"
+                className="w-full px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 outline-none text-xs"
+              />
+            </div>
+          )}
+
           <div>
-            <label className="text-sm font-medium text-slate-700 dark:text-slate-300 block mb-1.5">Transaction Type</label>
-            <select value={type} onChange={(e) => setType(e.target.value as TransactionType)} className="w-full px-4 py-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-cyan-500">
-              {(['Expense', 'Income', 'Transfer', 'Credit Card Payment'] as TransactionType[]).map((t) => (
-                <option key={t} value={t}>{t}</option>
+            <label className="text-xs font-semibold text-slate-600 dark:text-slate-400 block mb-1">
+              Category
+            </label>
+            <select
+              value={majorCategory}
+              onChange={(e) => {
+                setMajorCategory(e.target.value);
+                setSubCategory('');
+              }}
+              className="w-full px-3 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 outline-none text-xs"
+            >
+              {data.categories.map((c) => (
+                <option key={c.name} value={c.name}>
+                  {c.name}
+                </option>
               ))}
             </select>
           </div>
-          <div>
-            <label className="text-sm font-medium text-slate-700 dark:text-slate-300 block mb-1.5">Category</label>
-            <select value={majorCategory} onChange={(e) => { setMajorCategory(e.target.value); setSubCategory(''); }} className="w-full px-4 py-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-cyan-500">
-              {data.categories.map((c) => <option key={c.name} value={c.name}>{c.name}</option>)}
-            </select>
-          </div>
+
           {subCategories.length > 0 && (
             <div>
-              <label className="text-sm font-medium text-slate-700 dark:text-slate-300 block mb-1.5">Sub-category</label>
-              <select value={subCategory} onChange={(e) => setSubCategory(e.target.value)} className="w-full px-4 py-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-cyan-500">
+              <label className="text-xs font-semibold text-slate-600 dark:text-slate-400 block mb-1">
+                Sub-category
+              </label>
+              <select
+                value={subCategory}
+                onChange={(e) => setSubCategory(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 outline-none text-xs"
+              >
                 <option value="">None</option>
-                {subCategories.map((s) => <option key={s} value={s}>{s}</option>)}
+                {subCategories.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
               </select>
             </div>
           )}
-          <div>
-            <label className="text-sm font-medium text-slate-700 dark:text-slate-300 block mb-1.5">Account</label>
-            <select value={account} onChange={(e) => setAccount(e.target.value)} className="w-full px-4 py-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-cyan-500">
-              {data.accounts.map((a) => <option key={a} value={a}>{a}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="text-sm font-medium text-slate-700 dark:text-slate-300 block mb-1.5">Payment Mode</label>
-            <select value={paymentMode} onChange={(e) => setPaymentMode(e.target.value)} className="w-full px-4 py-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-cyan-500">
-              {data.paymentModes.map((p) => <option key={p} value={p}>{p}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="text-sm font-medium text-slate-700 dark:text-slate-300 block mb-1.5">Frequency *</label>
-            <select value={frequency} onChange={(e) => setFrequency(e.target.value as Frequency)} className="w-full px-4 py-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-cyan-500">
-              {(['Weekly', 'Monthly', 'Yearly', 'Custom'] as Frequency[]).map((f) => <option key={f} value={f}>{f}</option>)}
-            </select>
-          </div>
-          {frequency === 'Custom' && (
+
+          <div className="grid grid-cols-2 gap-2">
             <div>
-              <label className="text-sm font-medium text-slate-700 dark:text-slate-300 block mb-1.5">Custom Interval (days)</label>
-              <input type="number" value={customIntervalDays} onChange={(e) => setCustomIntervalDays(e.target.value)} placeholder="e.g. 15" className="w-full px-4 py-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-cyan-500" />
+              <label className="text-xs font-semibold text-slate-600 dark:text-slate-400 block mb-1">
+                Account / Source
+              </label>
+              <select
+                value={account}
+                onChange={(e) => setAccount(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 outline-none text-xs"
+              >
+                {data.accounts.map((a) => (
+                  <option key={a} value={a}>
+                    {a}
+                  </option>
+                ))}
+              </select>
             </div>
-          )}
-          <div>
-            <label className="text-sm font-medium text-slate-700 dark:text-slate-300 block mb-1.5">Start Date *</label>
-            <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-full px-4 py-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-cyan-500" />
-          </div>
-          <div>
-            <label className="text-sm font-medium text-slate-700 dark:text-slate-300 block mb-1.5">End Date (optional)</label>
-            <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="w-full px-4 py-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-cyan-500" />
-          </div>
-          <div className="flex items-center justify-between bg-slate-50 dark:bg-slate-800 rounded-xl p-3 border border-slate-200 dark:border-slate-700">
             <div>
-              <p className="text-sm font-medium text-slate-700 dark:text-slate-300">Automatic Posting</p>
-              <p className="text-xs text-slate-500 dark:text-slate-400">Auto-post when due date arrives</p>
+              <label className="text-xs font-semibold text-slate-600 dark:text-slate-400 block mb-1">
+                Payment Mode
+              </label>
+              <select
+                value={paymentMode}
+                onChange={(e) => setPaymentMode(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 outline-none text-xs"
+              >
+                {data.paymentModes.map((p) => (
+                  <option key={p} value={p}>
+                    {p}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-xs font-semibold text-slate-600 dark:text-slate-400 block mb-1">
+                Start Date *
+              </label>
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 outline-none text-xs"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-600 dark:text-slate-400 block mb-1">
+                End Date (optional)
+              </label>
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 outline-none text-xs"
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+            <div>
+              <p className="text-xs font-bold text-slate-800 dark:text-slate-200">Automatic Posting</p>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">Post transaction automatically when due</p>
             </div>
             <button
+              type="button"
               onClick={() => setAutomaticPosting(!automaticPosting)}
-              className={`relative w-12 h-7 rounded-full transition-colors ${automaticPosting ? 'bg-cyan-600' : 'bg-slate-300 dark:bg-slate-600'}`}
+              className={`w-11 h-6 rounded-full transition-colors relative ${
+                automaticPosting ? 'bg-cyan-600' : 'bg-slate-300 dark:bg-slate-600'
+              }`}
             >
-              <div className={`absolute top-1 w-5 h-5 rounded-full bg-white transition-transform ${automaticPosting ? 'translate-x-6' : 'translate-x-1'}`} />
+              <div
+                className={`w-4 h-4 rounded-full bg-white absolute top-1 transition-transform ${
+                  automaticPosting ? 'translate-x-6' : 'translate-x-1'
+                }`}
+              />
             </button>
           </div>
-          <button onClick={handleAdd} disabled={!description.trim() || !amount} className="w-full py-3 rounded-xl bg-cyan-600 text-white font-semibold active:scale-[0.98] transition-transform disabled:opacity-40">
-            Save Recurring
+
+          <button
+            onClick={handleAdd}
+            disabled={!description.trim() || !amount}
+            className="w-full py-3 rounded-xl bg-cyan-600 text-white font-semibold text-sm active:scale-95 disabled:opacity-40"
+          >
+            Save Mandate
           </button>
         </div>
       </Sheet>
