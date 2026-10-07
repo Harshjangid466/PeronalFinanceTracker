@@ -1,4 +1,6 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
+import {clearSheetDraft} from '@/components/NavigationGuard';
+import {getTheme, setTheme, type Theme} from '@/data/theme';
 import { useApp } from '@/context/AppContext';
 import type { CustomFieldDefinition, CustomFieldType, TransactionType } from '@/data/types';
 import { CORE_TRANSACTION_TYPES } from '@/data/types';
@@ -26,6 +28,8 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { Sheet } from '@/components/Sheet';
+import { MastersManager, MappingManager, RulesManager, AuditViewer, ExtendedFieldsManager } from '@/components/ConfigurationTools';
+import { RecurringScreen } from './RecurringScreen';
 
 type SettingsSection =
   | 'categories'
@@ -39,9 +43,10 @@ type SettingsSection =
   | 'incomeTypes'
   | 'investmentTypes'
   | 'backupRestore'
-  | 'sync';
+  | 'sync' | 'rules' | 'mappings' | 'audit' | 'recurring';
 
 export function SettingsScreen() {
+  const [theme, updateTheme] = useState<Theme>(getTheme);
   const {
     data,
     addCategory,
@@ -79,6 +84,7 @@ export function SettingsScreen() {
 
   const [section, setSection] = useState<SettingsSection | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  useEffect(()=>{const editRule=()=>setSection('rules');window.addEventListener('finance-edit-rule',editRule);return()=>window.removeEventListener('finance-edit-rule',editRule);},[]);
   const [restoreStatus, setRestoreStatus] = useState<string | null>(null);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced'>('idle');
 
@@ -103,6 +109,7 @@ export function SettingsScreen() {
     reader.onload = (event) => {
       const content = event.target?.result as string;
       if (content) {
+        if (!window.confirm('Merge this backup with your current data? Existing transaction IDs and records will be retained.')) return;
         const res = restoreBackup(content);
         if (res.success) {
           setRestoreStatus(res.message);
@@ -117,11 +124,7 @@ export function SettingsScreen() {
   }
 
   function handleSyncNow() {
-    setSyncStatus('syncing');
-    setTimeout(() => {
-      setSyncStatus('synced');
-      setTimeout(() => setSyncStatus('idle'), 2500);
-    }, 1000);
+    alert('Cloud sync is not connected yet. Your data is stored in this browser. Use Backup & Restore to save a copy.');
   }
 
   const sections: Array<{
@@ -131,6 +134,10 @@ export function SettingsScreen() {
     count?: number | string;
     badge?: string;
   }> = [
+    {id:'rules',label:'Rules & Logic',icon:Sparkles},
+    {id:'mappings',label:'Payment Mode → Source mappings',icon:CreditCard},
+    {id:'audit',label:'Action Log',icon:FormInput},
+    {id:'recurring',label:'Recurring & Mandates',icon:RefreshCw},
     { id: 'quickAmounts', label: 'Quick Amounts', icon: Zap, count: quickAmounts.length },
     { id: 'customFields', label: 'Dynamic Custom Fields', icon: FormInput, count: customFields.length },
     { id: 'categories', label: 'Categories & Sub-categories', icon: Tag, count: data.categories.length },
@@ -141,7 +148,7 @@ export function SettingsScreen() {
     { id: 'toGharOptions', label: 'To Ghar Purposes', icon: Home, count: data.toGharPaymentFor?.length || 0 },
     { id: 'incomeTypes', label: 'Income Misc Types', icon: Briefcase, count: data.incomeTypes?.length || 0 },
     { id: 'investmentTypes', label: 'Investment Types', icon: TrendingUp, count: data.investmentTypes?.length || 0 },
-    { id: 'backupRestore', label: 'Backup & Restore', icon: Download, badge: 'v2 JSON' },
+    { id: 'backupRestore', label: 'Backup & Restore', icon: Download, badge: 'v4 JSON' },
     { id: 'sync', label: 'Multi-Device Sync', icon: RefreshCw, badge: 'Offline-Ready' },
   ];
 
@@ -151,6 +158,14 @@ export function SettingsScreen() {
         <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Settings</h1>
         <p className="text-xs text-slate-500 dark:text-slate-400">Customise fields, dropdowns, and backups</p>
       </div>
+
+      <section aria-label="Appearance" className="bg-white dark:bg-slate-800 rounded-2xl p-4 border border-slate-100 dark:border-slate-700">
+        <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Theme</h2>
+        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 mb-3">Choose your preferred appearance.</p>
+        <div className="flex gap-2" role="group" aria-label="Theme">
+          {(['dark','light'] as const).map(choice => <button key={choice} aria-pressed={theme === choice} onClick={() => {setTheme(choice); updateTheme(choice);}} className={`flex-1 rounded-xl py-2 text-sm font-medium border ${theme === choice ? 'bg-cyan-600 text-white border-cyan-600' : 'bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-600'}`}>{choice === 'dark' ? 'Dark' : 'Light'}</button>)}
+        </div>
+      </section>
 
       {/* Sync Status Banner (Section X) */}
       <div className="bg-white dark:bg-slate-800 rounded-2xl p-3.5 border border-slate-100 dark:border-slate-700 shadow-sm flex items-center justify-between">
@@ -162,7 +177,7 @@ export function SettingsScreen() {
             <p className="text-xs font-bold text-slate-800 dark:text-slate-200">
               {syncStatus === 'synced' ? 'Synchronized' : 'Offline Storage Active'}
             </p>
-            <p className="text-[11px] text-slate-400">Local data secure · Multi-device sync ready</p>
+            <p className="text-[11px] text-slate-400">Saved in this browser · Cloud sync not connected</p>
           </div>
         </div>
 
@@ -209,6 +224,10 @@ export function SettingsScreen() {
         })}
       </div>
 
+      <Sheet open={section==='rules'} onClose={()=>setSection(null)} title="Rules & Logic"><RulesManager /></Sheet>
+      <Sheet open={section==='mappings'} onClose={()=>setSection(null)} title="Payment Mode → Source mappings"><MappingManager /></Sheet>
+      <Sheet open={section==='audit'} onClose={()=>setSection(null)} title="Action Log"><AuditViewer /></Sheet>
+      <Sheet open={section==='recurring'} onClose={()=>setSection(null)} title="Recurring & Mandates"><RecurringScreen /></Sheet>
       {/* Hidden file input for restore */}
       <input
         ref={fileInputRef}
@@ -231,95 +250,47 @@ export function SettingsScreen() {
 
       {/* 2. DYNAMIC CUSTOM FIELDS MANAGER (Section M) */}
       <Sheet open={section === 'customFields'} onClose={() => setSection(null)} title="Custom Fields & Dropdowns">
-        <CustomFieldsManager
-          customFields={customFields}
-          onAdd={addCustomField}
-          onUpdate={updateCustomField}
-          onDelete={deleteCustomField}
-          onReorder={reorderCustomFields}
-        />
+        <ExtendedFieldsManager />
       </Sheet>
 
       {/* 3. CATEGORIES & SUBCATEGORIES */}
       <Sheet open={section === 'categories'} onClose={() => setSection(null)} title="Categories & Sub-categories">
-        <CategoriesManager
-          categories={data.categories}
-          onAddCategory={addCategory}
-          onUpdateCategory={updateCategory}
-          onDeleteCategory={deleteCategory}
-          onAddSubCategory={addSubCategory}
-          onDeleteSubCategory={deleteSubCategory}
-        />
+        <MastersManager kind="category" />
       </Sheet>
 
       {/* 4. SOURCES / ACCOUNTS */}
       <Sheet open={section === 'accounts'} onClose={() => setSection(null)} title="Sources / Accounts">
-        <SimpleListManager
-          items={data.accounts}
-          onAdd={addAccount}
-          onDelete={deleteAccount}
-          placeholder="New account / card name (e.g. Scapia CC)"
-        />
+        <MastersManager kind="source" />
       </Sheet>
 
       {/* 5. PAYMENT MODES */}
       <Sheet open={section === 'paymentModes'} onClose={() => setSection(null)} title="Payment Modes">
-        <SimpleListManager
-          items={data.paymentModes}
-          onAdd={addPaymentMode}
-          onDelete={deletePaymentMode}
-          placeholder="New payment mode (e.g. Splitwise)"
-        />
+        <MastersManager kind="paymentMode" />
       </Sheet>
 
       {/* 6. PEOPLE */}
       <Sheet open={section === 'people'} onClose={() => setSection(null)} title="People (Ledgers)">
-        <SimpleListManager
-          items={data.people}
-          onAdd={addPerson}
-          onDelete={deletePerson}
-          placeholder="New person name (e.g. Siddharth)"
-        />
+        <MastersManager kind="person" />
       </Sheet>
 
       {/* 7. CAPEX MERCHANTS */}
       <Sheet open={section === 'capexMerchants'} onClose={() => setSection(null)} title="CAPEX Merchants">
-        <SimpleListManager
-          items={data.capexPurchasedFrom || []}
-          onAdd={addCapexPurchasedFrom}
-          onDelete={deleteCapexPurchasedFrom}
-          placeholder="New merchant (e.g. Amazon, Croma)"
-        />
+        <MastersManager kind="merchant" />
       </Sheet>
 
       {/* 8. TO GHAR OPTIONS */}
       <Sheet open={section === 'toGharOptions'} onClose={() => setSection(null)} title="To Ghar Purposes">
-        <SimpleListManager
-          items={data.toGharPaymentFor || []}
-          onAdd={addToGharPaymentFor}
-          onDelete={deleteToGharPaymentFor}
-          placeholder="New purpose (e.g. To Papa/Mummy, Ration)"
-        />
+        <MastersManager kind="purpose" />
       </Sheet>
 
       {/* 9. INCOME TYPES */}
       <Sheet open={section === 'incomeTypes'} onClose={() => setSection(null)} title="Income Misc Types">
-        <SimpleListManager
-          items={data.incomeTypes || []}
-          onAdd={addIncomeType}
-          onDelete={deleteIncomeType}
-          placeholder="New income type (e.g. Consulting, Cashback)"
-        />
+        <MastersManager kind="incomeType" />
       </Sheet>
 
       {/* 10. INVESTMENT TYPES */}
       <Sheet open={section === 'investmentTypes'} onClose={() => setSection(null)} title="Investment Types">
-        <SimpleListManager
-          items={data.investmentTypes || []}
-          onAdd={addInvestmentType}
-          onDelete={deleteInvestmentType}
-          placeholder="New investment type (e.g. Zerodha, Books, FD)"
-        />
+        <MastersManager kind="investmentType" />
       </Sheet>
 
       {/* 11. BACKUP & RESTORE (Section V) */}
@@ -490,7 +461,7 @@ function QuickAmountsManager({
                     onClick={() => {
                       const v = parseFloat(editVal);
                       if (v > 0) {
-                        onUpdate(idx, v);
+                        onUpdate(idx, v);clearSheetDraft();
                         setEditingIndex(null);
                       }
                     }}

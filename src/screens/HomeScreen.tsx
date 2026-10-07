@@ -29,6 +29,8 @@ import {
   ArrowRight,
 } from 'lucide-react';
 import { Sheet } from '@/components/Sheet';
+import { FrequentSuggestions } from '@/components/FrequentSuggestions';
+import {SpendingInsights} from '@/components/SpendingInsights';
 import { TransactionForm } from '@/components/TransactionForm';
 import { CategoryDrillDownModal } from '@/components/CategoryDrillDownModal';
 import { PersonLedgerModal } from '@/components/PersonLedgerModal';
@@ -68,7 +70,7 @@ export function HomeScreen({ onNavigate }: { onNavigate: (tab: NavTarget) => voi
     } else if (period === 'previous_month') {
       fromDate = getPreviousMonthStart(today);
       const nextMonthFirst = getMonthStart(today);
-      toDate = nextMonthFirst;
+      toDate = new Date(new Date(nextMonthFirst + 'T00:00:00Z').getTime() - 86400000).toISOString().slice(0, 10);
     } else if (period === 'year') {
       fromDate = getYearStart(today);
       toDate = today;
@@ -420,6 +422,8 @@ export function HomeScreen({ onNavigate }: { onNavigate: (tab: NavTarget) => voi
         </div>
       </div>
 
+      <FrequentSuggestions />
+      <SpendingInsights />
       {/* SECTION S & T: SPENDING ANALYSIS & HISTORICAL BUDGET */}
       <div className="space-y-3">
         {/* Month-on-month comparison */}
@@ -439,8 +443,9 @@ export function HomeScreen({ onNavigate }: { onNavigate: (tab: NavTarget) => voi
                     : 'bg-slate-100 text-slate-700'
                 }`}
               >
-                {momComparison.diff >= 0 ? '+' : ''}
-                {momComparison.pct.toFixed(0)}% vs last month
+                {momComparison.prevSpend > 0
+                  ? `${momComparison.diff >= 0 ? '+' : ''}${momComparison.pct.toFixed(0)}% vs last month`
+                  : 'N/A — no previous-month baseline'}
               </span>
             </div>
           </div>
@@ -472,7 +477,7 @@ export function HomeScreen({ onNavigate }: { onNavigate: (tab: NavTarget) => voi
               >
                 <AlertTriangle size={16} className="shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
                 <div className="flex-1">
-                  <p className="font-bold">{b.category} Budget Alert</p>
+                  <p className="font-bold">{b.category} Above your usual spending</p>
                   <p className="mt-0.5">{b.warning}</p>
                 </div>
               </div>

@@ -1,10 +1,13 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useApp } from '@/context/AppContext';
 import type { Transaction, TransactionType, CustomFieldDefinition } from '@/data/types';
 import { CORE_TRANSACTION_TYPES, normalizeTransactionType } from '@/data/types';
 import { todayISO, formatCurrency } from '@/data/format';
 import { Check, Plus, AlertCircle, Sparkles, ChevronDown, X } from 'lucide-react';
 import { Sheet } from '@/components/Sheet';
+import { ruleDefaults, visibleField } from '@/data/model';
+import { DynamicFields } from './DynamicFields';
+import {useDraftGuard,requestNavigation,clearSheetDraft} from './NavigationGuard';
 
 interface TransactionFormProps {
   initialType?: TransactionType;
@@ -42,7 +45,10 @@ export function TransactionForm({
     detectFrequentCandidates,
   } = useApp();
 
+  const guard=useDraftGuard();
   const isEdit = Boolean(editTransaction);
+  const manualSource = useRef(Boolean(editTransaction || prefill?.account));
+  const manualMode = useRef(Boolean(editTransaction || prefill?.paymentMode));
   const [type, setType] = useState<TransactionType>(
     editTransaction ? normalizeTransactionType(editTransaction.type) : initialType
   );
@@ -60,10 +66,10 @@ export function TransactionForm({
     editTransaction ? editTransaction.subCategory : prefill?.subCategory || ''
   );
   const [paymentMode, setPaymentMode] = useState<string>(
-    editTransaction ? editTransaction.paymentMode : prefill?.paymentMode || (data.paymentModes[0] || 'UPI')
+    editTransaction ? editTransaction.paymentMode : prefill?.paymentMode || (data.paymentModes.includes('UPI')?'UPI':data.paymentModes[0] || '')
   );
   const [account, setAccount] = useState<string>(
-    editTransaction ? editTransaction.account : prefill?.account || (data.accounts[0] || 'Cash')
+    editTransaction ? editTransaction.account : prefill?.account || (data.accounts.includes('HDFC Savings A/c')?'HDFC Savings A/c':data.accounts[0] || '')
   );
   const [person, setPerson] = useState<string>(
     editTransaction ? editTransaction.person : prefill?.person || ''
@@ -80,6 +86,7 @@ export function TransactionForm({
   const [investmentType, setInvestmentType] = useState<string>(
     editTransaction?.investmentType || prefill?.investmentType || ''
   );
+  const [heading, setHeading] = useState(editTransaction?.heading || prefill?.heading || '');
   const [remarks, setRemarks] = useState<string>(
     editTransaction ? editTransaction.remarks : prefill?.remarks || ''
   );
@@ -100,6 +107,25 @@ export function TransactionForm({
 
   // Frequent suggestion banner
   const [frequentSuggestion, setFrequentSuggestion] = useState<string | null>(null);
+
+  const resolvedDefaults=JSON.stringify(ruleDefaults(data.rules.filter(r=>data.learningEnabled||!r.isLearned),data.masters||[],{type,majorCategory,subCategory,paymentMode,account,person,purchasedFrom,paymentFor,incomeType,investmentType,...customFieldValues}));
+  useEffect(()=>{
+    if(isEdit)return;
+    const defaults=JSON.parse(resolvedDefaults) as Record<string,string>;
+    if(!manualSource.current && defaults.account)setAccount(defaults.account);
+    if(!manualMode.current && defaults.paymentMode)setPaymentMode(defaults.paymentMode);
+    if(defaults.majorCategory)setMajorCategory(defaults.majorCategory);
+    if(defaults.subCategory)setSubCategory(defaults.subCategory);
+    if(defaults.person)setPerson(defaults.person);if(defaults.purchasedFrom)setPurchasedFrom(defaults.purchasedFrom);if(defaults.paymentFor)setPaymentFor(defaults.paymentFor);if(defaults.incomeType)setIncomeType(defaults.incomeType);if(defaults.investmentType)setInvestmentType(defaults.investmentType);
+    const custom=Object.fromEntries(Object.entries(defaults).filter(([key])=>data.customFields.some(f=>f.key===key)));
+    if(Object.keys(custom).length)setCustomFieldValues(prev=>({...prev,...custom}));
+  },[resolvedDefaults,isEdit]);
+  const eligibleSources=useMemo(()=>{
+    const mode=data.masters?.find(m=>m.kind==='paymentMode'&&m.name===paymentMode);
+    const eligible=mode?data.sourceMappings?.[mode.id]:undefined;
+    const mapped=data.accounts.filter(name=>eligible?.includes(data.masters?.find(m=>m.kind==='source'&&m.name===name)?.id||''));
+    return Array.from(new Set([...(mapped.length?mapped:data.accounts),...(account?[account]:[])]));
+  },[data.accounts,data.masters,data.sourceMappings,paymentMode,account]);
 
   // When initialType changes and not editing, update type
   useEffect(() => {
@@ -134,13 +160,13 @@ export function TransactionForm({
   // Filter custom fields applicable to this transaction type
   const applicableCustomFields = useMemo(() => {
     return (data.customFields || [])
-      .filter((f) => f.enabled)
+      .filter((f) => visibleField(f,data.customFields,customFieldValues))
       .filter((f) => !f.applicableTypes || f.applicableTypes.length === 0 || f.applicableTypes.includes(type))
       .sort((a, b) => a.order - b.order);
-  }, [data.customFields, type]);
+  }, [data.customFields, type,customFieldValues]);
 
   function handleQuickAmountClick(amt: number) {
-    setAmount(String(amt));
+    guard.mark();setAmount(String(amt));
   }
 
   function handleCustomFieldChange(key: string, val: any) {
@@ -194,7 +220,7 @@ export function TransactionForm({
 
   const isValid = useMemo(() => {
     const amt = parseFloat(amount);
-    if (!amt || amt <= 0) return false;
+    if (!Number.isFinite(amt) || amt <= 0 || !Number.isSafeInteger(Math.round(amt*100)) || Math.abs(amt*100-Math.round(amt*100))>1e-6) return false;
     if (!date) return false;
 
     if (type === 'Revenue Expense' && !majorCategory) return false;
@@ -208,7 +234,7 @@ export function TransactionForm({
     for (const cf of applicableCustomFields) {
       if (cf.required) {
         const val = customFieldValues[cf.key];
-        if (val === undefined || val === null || val === '') return false;
+        if (val === undefined || val === null || val === '' || Array.isArray(val)&&val.length===0) return false;
       }
     }
 
@@ -227,7 +253,8 @@ export function TransactionForm({
   ]);
 
   function handleSubmit() {
-    if (!isValid) return;
+    if (!isValid || saved) return;
+    guard.clear();clearSheetDraft();
 
     const amt = parseFloat(amount) || 0;
     const txnPayload: Partial<Transaction> & { amount: number; type: TransactionType } = {
@@ -243,6 +270,7 @@ export function TransactionForm({
       paymentFor: paymentFor.trim(),
       incomeType: incomeType.trim(),
       investmentType: investmentType.trim(),
+      heading: heading.trim(),
       remarks: remarks.trim(),
       customFields: customFieldValues,
     };
@@ -313,7 +341,7 @@ export function TransactionForm({
   }
 
   return (
-    <div className={`space-y-4 ${isModal ? 'p-1' : 'px-4 pt-4 pb-24 max-w-md mx-auto'}`}>
+    <div onChangeCapture={guard.mark} className={`space-y-4 ${isModal ? 'p-1' : 'px-4 pt-4 pb-24 max-w-md mx-auto'}`}>
       {/* Transaction Type Selector Bar (if in Add screen or editing) */}
       <div className="flex items-center justify-between pb-1">
         <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
@@ -322,7 +350,7 @@ export function TransactionForm({
               key={t}
               type="button"
               onClick={() => {
-                setType(t);
+                guard.mark();setType(t);
                 // Set default categories if switching
                 if (t === 'Revenue Expense' && !majorCategory) {
                   setMajorCategory(data.categories[0]?.name || 'Food');
@@ -340,7 +368,7 @@ export function TransactionForm({
         </div>
         {onClose && (
           <button
-            onClick={onClose}
+            onClick={()=>requestNavigation(()=>onClose?.())}
             className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg ml-2 shrink-0"
           >
             <X size={20} />
@@ -414,6 +442,12 @@ export function TransactionForm({
           onChange={(e) => setDate(e.target.value)}
           className="w-full px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-cyan-500 text-sm"
         />
+      </div>
+
+      <div>
+        <label htmlFor="transaction-heading" className="text-xs font-semibold text-slate-600 dark:text-slate-400 block mb-1">Heading (optional)</label>
+        <input id="transaction-heading" type="text" value={heading} onChange={(e) => setHeading(e.target.value)}
+          className="w-full px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700" />
       </div>
 
       {/* TYPE-SPECIFIC FIELDS */}
@@ -727,7 +761,7 @@ export function TransactionForm({
           </div>
           <select
             value={paymentMode}
-            onChange={(e) => setPaymentMode(e.target.value)}
+            onChange={(e) => {manualMode.current=true;setPaymentMode(e.target.value);}}
             className="w-full px-3 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-cyan-500 text-sm"
           >
             {data.paymentModes.map((pm) => (
@@ -753,10 +787,10 @@ export function TransactionForm({
           </div>
           <select
             value={account}
-            onChange={(e) => setAccount(e.target.value)}
+            onChange={(e) => {manualSource.current=true;setAccount(e.target.value);}}
             className="w-full px-3 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-cyan-500 text-sm"
           >
-            {data.accounts.map((acc) => (
+            {eligibleSources.map((acc) => (
               <option key={acc} value={acc}>
                 {acc}
               </option>
@@ -766,61 +800,7 @@ export function TransactionForm({
       </div>
 
       {/* DYNAMIC CUSTOM FIELDS (Section M) */}
-      {applicableCustomFields.map((cf) => {
-        const val = customFieldValues[cf.key] ?? '';
-        return (
-          <div key={cf.id || cf.key}>
-            <label className="text-xs font-semibold text-slate-600 dark:text-slate-400 block mb-1">
-              {cf.label} {cf.required && <span className="text-red-500">*</span>}
-            </label>
-            {cf.type === 'dropdown' ? (
-              <select
-                value={val}
-                onChange={(e) => handleCustomFieldChange(cf.key, e.target.value)}
-                className="w-full px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-cyan-500 text-sm"
-              >
-                <option value="">Select {cf.label}</option>
-                {cf.options?.map((opt) => (
-                  <option key={opt} value={opt}>
-                    {opt}
-                  </option>
-                ))}
-              </select>
-            ) : cf.type === 'longText' ? (
-              <textarea
-                value={val}
-                onChange={(e) => handleCustomFieldChange(cf.key, e.target.value)}
-                rows={2}
-                placeholder={`Enter ${cf.label.toLowerCase()}`}
-                className="w-full px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-cyan-500 text-sm"
-              />
-            ) : cf.type === 'number' || cf.type === 'decimal' ? (
-              <input
-                type="number"
-                inputMode="decimal"
-                value={val}
-                onChange={(e) => handleCustomFieldChange(cf.key, e.target.value)}
-                className="w-full px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-cyan-500 text-sm"
-              />
-            ) : cf.type === 'date' ? (
-              <input
-                type="date"
-                value={val}
-                onChange={(e) => handleCustomFieldChange(cf.key, e.target.value)}
-                className="w-full px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-cyan-500 text-sm"
-              />
-            ) : (
-              <input
-                type="text"
-                value={val}
-                onChange={(e) => handleCustomFieldChange(cf.key, e.target.value)}
-                placeholder={`Enter ${cf.label.toLowerCase()}`}
-                className="w-full px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-cyan-500 text-sm"
-              />
-            )}
-          </div>
-        );
-      })}
+      <DynamicFields fields={(data.customFields||[]).filter(f=>!f.applicableTypes.length||f.applicableTypes.includes(type))} values={customFieldValues} onChange={handleCustomFieldChange}/>
 
       {/* Remarks (Section N: Unlimited text, multiline textarea) */}
       <div>
@@ -870,7 +850,7 @@ export function TransactionForm({
         <button
           type="button"
           onClick={handleSubmit}
-          disabled={!isValid}
+          disabled={!isValid || saved}
           className="w-full py-3.5 rounded-2xl bg-cyan-600 text-white font-semibold text-base active:scale-[0.98] transition-transform disabled:opacity-40 disabled:active:scale-100 flex items-center justify-center gap-2 shadow-lg shadow-cyan-600/20"
         >
           {saved ? (
@@ -888,7 +868,7 @@ export function TransactionForm({
           <button
             type="button"
             onClick={handleSaveAsFrequent}
-            disabled={!isValid}
+            disabled={!isValid || saved}
             className="w-full py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-medium text-xs active:scale-[0.98] transition-transform border border-slate-200 dark:border-slate-700 disabled:opacity-40"
           >
             Save as Frequent Template

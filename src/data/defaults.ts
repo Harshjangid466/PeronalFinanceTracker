@@ -1,8 +1,9 @@
-import type { AppData, CategoryDef, FieldConfig, CustomFieldDefinition } from './types';
+import {canonicalSources,canonicalModes,canonicalPeople,canonicalCategories} from './model';
+import type { AppData, CategoryDef, FieldConfig, CustomFieldDefinition, RuleDefinition } from './types';
 
 export const DEFAULT_QUICK_AMOUNTS = [15, 20, 25, 50, 100, 200, 500, 1000];
 
-export const DEFAULT_CATEGORIES: CategoryDef[] = [
+const LEGACY_CATEGORIES: CategoryDef[] = [
   {
     name: 'Food',
     subCategories: ['Breakfast', 'Lunch', 'Dinner', 'Snacks', 'Coffee', 'Groceries'],
@@ -53,34 +54,16 @@ export const DEFAULT_CATEGORIES: CategoryDef[] = [
   },
 ];
 
-export const DEFAULT_ACCOUNTS = [
-  'Split wise',
-  'Cash',
-  'HDFC Savings A/c',
-  'BOB Savings A/c',
-  'SBI Savings A/c',
-  'RGB Savings A/c',
-  'Axis Bank CC',
-  'ICICI Amazon Pay CC',
-  'HDFC Swiggy CC',
-  'BOB CC',
-  'SBI PhonePe CC',
-  'Axis Flipkart CC',
-  'Axis Neo CC',
-  'Scapia CC',
-  'ICICI Coral CC',
-  'Pluxee',
-];
+export const DEFAULT_CATEGORIES: CategoryDef[] = canonicalCategories.map(name => {
+ const legacy = LEGACY_CATEGORIES.find(c => c.name === name || ({'Delhi Flat expense':'Delhi flat expense','Annual Expenditure':'Annual Expense','Travel/Trip':'Travel trip'} as Record<string,string>)[name] === c.name);
+ return {name,subCategories:[...(legacy?.subCategories || [])]};
+});
 
-export const DEFAULT_PAYMENT_MODES = [
-  'UPI',
-  'Cash',
-  'Splitwise',
-  'CC',
-  'Net banking',
-  'Debit Card',
-  'Wallet',
-];
+export const DEFAULT_ACCOUNTS = [...canonicalSources];
+
+export const DEFAULT_PAYMENT_MODES = [...canonicalModes];
+
+export const DEFAULT_PEOPLE = [...canonicalPeople];
 
 export const DEFAULT_CAPEX_PURCHASED_FROM = [
   'Amazon',
@@ -158,9 +141,133 @@ export const DEFAULT_RECURRING_FORM_FIELDS: FieldConfig[] = [
 
 export const DEFAULT_CUSTOM_FIELDS: CustomFieldDefinition[] = [];
 
+export const DEFAULT_PAYMENT_MODE_SOURCES: Record<string, string[]> = {
+  Cash: ['Cash'],
+  UPI: ['HDFC Savings A/c', 'BOB Savings A/c', 'SBI Savings A/c', 'RGB Savings A/c'],
+  CC: [
+    'HDFC Swiggy CC',
+    'Amazon ICICI CC',
+        'Flipkart Axis CC',
+    'ICICI Coral CC',
+    'Scapia Federal CC',
+        'BOB ICAI CC',
+    'SBI PhonePe CC',
+    'Axis Neo CC',
+      ],
+  'Net banking': ['HDFC Savings A/c', 'BOB Savings A/c', 'SBI Savings A/c', 'RGB Savings A/c'],
+  Splitwise: ['Splitwise'],
+  Wallet: ['Amazon Pay', 'Pluxee card'],
+};
+
+export const DEFAULT_RULES: RuleDefinition[] = [
+  {
+    id: 'rule_default_cash',
+    name: 'Cash Payment → Cash Source',
+    conditions: [{ field: 'paymentMode', operator: 'equals', value: 'Cash' }],
+    actions: [{ targetField: 'account', value: 'Cash' }],
+    priority: 1,
+    enabled: true,
+    locked: true,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  },
+  {
+    id: 'rule_lent_siddharth',
+    name: 'Lent to Siddharth → SBI Savings A/c',
+    conditions: [
+      { field: 'transactionType', operator: 'equals', value: 'Lent' },
+      { field: 'person', operator: 'equals', value: 'Siddharth Bhardwaj' },
+    ],
+    actions: [{ targetField: 'account', value: 'SBI Savings A/c' }],
+    priority: 2,
+    enabled: true,
+    locked: false,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  },
+  {
+    id: 'rule_to_ghar_sbi',
+    name: 'To Ghar → SBI Savings A/c',
+    conditions: [{ field: 'transactionType', operator: 'equals', value: 'To Ghar' }],
+    actions: [{ targetField: 'account', value: 'SBI Savings A/c' }],
+    priority: 3,
+    enabled: true,
+    locked: false,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  },
+  {
+    id: 'rule_capex_amazon',
+    name: 'Amazon CAPEX → ICICI Amazon CC',
+    conditions: [
+      { field: 'transactionType', operator: 'equals', value: 'CAPEX' },
+      { field: 'purchasedFrom', operator: 'equals', value: 'Amazon' },
+    ],
+    actions: [{ targetField: 'account', value: 'Amazon ICICI CC' }],
+    priority: 4,
+    enabled: true,
+    locked: false,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  },
+  {
+    id: 'rule_capex_flipkart',
+    name: 'Flipkart CAPEX → Axis Flipkart CC',
+    conditions: [
+      { field: 'transactionType', operator: 'equals', value: 'CAPEX' },
+      { field: 'purchasedFrom', operator: 'equals', value: 'Flipkart' },
+    ],
+    actions: [{ targetField: 'account', value: 'Flipkart Axis CC' }],
+    priority: 5,
+    enabled: true,
+    locked: false,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  },
+  {
+    id: 'rule_capex_myntra',
+    name: 'Myntra CAPEX → Axis Flipkart CC',
+    conditions: [
+      { field: 'transactionType', operator: 'equals', value: 'CAPEX' },
+      { field: 'purchasedFrom', operator: 'equals', value: 'Myntra' },
+    ],
+    actions: [{ targetField: 'account', value: 'Flipkart Axis CC' }],
+    priority: 6,
+    enabled: true,
+    locked: false,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  },
+  {
+    id: 'rule_entertainment_cc',
+    name: 'Entertainment/Internet → SBI PhonePe CC',
+    conditions: [{ field: 'majorCategory', operator: 'equals', value: 'Entertainment/Internet' }],
+    actions: [
+      { targetField: 'paymentMode', value: 'CC' },
+      { targetField: 'account', value: 'SBI PhonePe CC' },
+    ],
+    priority: 7,
+    enabled: true,
+    locked: false,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  },
+  {
+    id: 'rule_default_rev_exp_source',
+    name: 'Default Revenue Expense → HDFC Savings A/c',
+    conditions: [{ field: 'transactionType', operator: 'equals', value: 'Revenue Expense' }],
+    actions: [{ targetField: 'account', value: 'HDFC Savings A/c' }],
+    priority: 8,
+    enabled: true,
+    locked: false,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  },
+];
+
 export function getDefaultData(): AppData {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     transactions: [],
     receivables: [],
     repayments: [],
@@ -171,7 +278,7 @@ export function getDefaultData(): AppData {
     categories: DEFAULT_CATEGORIES.map((c) => ({ ...c, subCategories: [...c.subCategories] })),
     accounts: [...DEFAULT_ACCOUNTS],
     paymentModes: [...DEFAULT_PAYMENT_MODES],
-    people: [],
+    people: [...DEFAULT_PEOPLE],
     capexPurchasedFrom: [...DEFAULT_CAPEX_PURCHASED_FROM],
     toGharPaymentFor: [...DEFAULT_TO_GHAR_PAYMENT_FOR],
     incomeTypes: [...DEFAULT_INCOME_TYPES],
@@ -179,5 +286,21 @@ export function getDefaultData(): AppData {
     customFields: [...DEFAULT_CUSTOM_FIELDS],
     formFields: DEFAULT_FORM_FIELDS.map((f) => ({ ...f, options: f.options ? [...f.options] : undefined })),
     recurringFormFields: DEFAULT_RECURRING_FORM_FIELDS.map((f) => ({ ...f, options: f.options ? [...f.options] : undefined })),
+    rules: DEFAULT_RULES.map((r) => ({
+      ...r,
+      conditions: r.conditions.map((c) => ({ ...c })),
+      actions: r.actions.map((a) => ({ ...a })),
+    })),
+    actionLog: [
+      {
+        id: 'init_log',
+        timestamp: Date.now(),
+        actionType: 'initialize',
+        entityType: 'system',
+        description: 'Personal Finance Tracker system initialized',
+      },
+    ],
+    paymentModeSources: { ...DEFAULT_PAYMENT_MODE_SOURCES },
+    learningEnabled: true,
   };
 }

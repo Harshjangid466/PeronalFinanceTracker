@@ -1,9 +1,10 @@
 import { useState, useMemo } from 'react';
 import { Sheet } from '@/components/Sheet';
+import {CustomDrilldown} from './CustomDrilldown';
 import { useApp, type PersonLedgerItem } from '@/context/AppContext';
 import type { Transaction, TransactionType } from '@/data/types';
 import { normalizeTransactionType } from '@/data/types';
-import { formatCurrency, formatDate } from '@/data/format';
+import { allocatePercentages, formatCurrency, formatDate } from '@/data/format';
 import { Users, ChevronRight, ArrowUpRight, ArrowDownLeft, Trash2, Edit2, Plus, Sparkles } from 'lucide-react';
 
 interface CategoryDrillDownModalProps {
@@ -52,7 +53,7 @@ export function CategoryDrillDownModal({
         amount,
         percentage: totalAmount > 0 ? (amount / totalAmount) * 100 : 0,
       }))
-      .sort((a, b) => b.amount - a.amount);
+      .sort((a, b) => b.amount - a.amount).map((item,index,items)=>({...item,percentage:allocatePercentages(items.map(i=>i.amount))[index]}));
   }, [categoryType, txns, totalAmount]);
 
   const subCategoryBreakdown = useMemo(() => {
@@ -70,7 +71,7 @@ export function CategoryDrillDownModal({
         amount,
         percentage: subTotal > 0 ? (amount / subTotal) * 100 : 0,
       }))
-      .sort((a, b) => b.amount - a.amount);
+      .sort((a, b) => b.amount - a.amount).map((item,index,items)=>({...item,percentage:allocatePercentages(items.map(i=>i.amount))[index]}));
   }, [selectedSubCat, txns]);
 
   // Capex breakdowns
@@ -89,12 +90,12 @@ export function CategoryDrillDownModal({
         name,
         amount,
         percentage: totalAmount > 0 ? (amount / totalAmount) * 100 : 0,
-      })).sort((a, b) => b.amount - a.amount),
+      })).sort((a, b) => b.amount - a.amount).map((item,index,items)=>({...item,percentage:allocatePercentages(items.map(i=>i.amount))[index]})),
       byMerchant: Array.from(merchantMap.entries()).map(([name, amount]) => ({
         name,
         amount,
         percentage: totalAmount > 0 ? (amount / totalAmount) * 100 : 0,
-      })).sort((a, b) => b.amount - a.amount),
+      })).sort((a, b) => b.amount - a.amount).map((item,index,items)=>({...item,percentage:allocatePercentages(items.map(i=>i.amount))[index]})),
     };
   }, [categoryType, txns, totalAmount]);
 
@@ -112,7 +113,7 @@ export function CategoryDrillDownModal({
         amount,
         percentage: totalAmount > 0 ? (amount / totalAmount) * 100 : 0,
       }))
-      .sort((a, b) => b.amount - a.amount);
+      .sort((a, b) => b.amount - a.amount).map((item,index,items)=>({...item,percentage:allocatePercentages(items.map(i=>i.amount))[index]}));
   }, [categoryType, txns, totalAmount]);
 
   // Income Misc breakdown
@@ -129,7 +130,7 @@ export function CategoryDrillDownModal({
         amount,
         percentage: totalAmount > 0 ? (amount / totalAmount) * 100 : 0,
       }))
-      .sort((a, b) => b.amount - a.amount);
+      .sort((a, b) => b.amount - a.amount).map((item,index,items)=>({...item,percentage:allocatePercentages(items.map(i=>i.amount))[index]}));
   }, [categoryType, txns, totalAmount]);
 
   // Investment breakdown
@@ -146,7 +147,7 @@ export function CategoryDrillDownModal({
         amount,
         percentage: totalAmount > 0 ? (amount / totalAmount) * 100 : 0,
       }))
-      .sort((a, b) => b.amount - a.amount);
+      .sort((a, b) => b.amount - a.amount).map((item,index,items)=>({...item,percentage:allocatePercentages(items.map(i=>i.amount))[index]}));
   }, [categoryType, txns, totalAmount]);
 
   // Lent Recovered person breakdown
@@ -163,7 +164,7 @@ export function CategoryDrillDownModal({
         amount,
         percentage: totalAmount > 0 ? (amount / totalAmount) * 100 : 0,
       }))
-      .sort((a, b) => b.amount - a.amount);
+      .sort((a, b) => b.amount - a.amount).map((item,index,items)=>({...item,percentage:allocatePercentages(items.map(i=>i.amount))[index]}));
   }, [categoryType, txns, totalAmount]);
 
   // Unified Ledgers for Lent
@@ -179,6 +180,7 @@ export function CategoryDrillDownModal({
 
   return (
     <Sheet open={open} onClose={() => { setSelectedSubCat(null); onClose(); }} title={`${categoryType} Breakdown`}>
+      <CustomDrilldown transactions={txns} />
       <div className="space-y-4">
         {/* Total Summary Card */}
         <div className="bg-gradient-to-br from-cyan-600 to-teal-700 rounded-2xl p-4 text-white shadow-md">

@@ -5,10 +5,15 @@ import type { Transaction, TransactionType } from '@/data/types';
 import { formatCurrency, formatDate, todayISO } from '@/data/format';
 import { Search, SlidersHorizontal, X, Trash2, Edit2, Download, Printer, FileText } from 'lucide-react';
 import { Sheet } from '@/components/Sheet';
+import {searchableText} from '@/data/model';
+import {ExportReport,ImportExpenses} from '@/components/ReportTools';
 import { TransactionForm } from '@/components/TransactionForm';
 
 export function TransactionsScreen() {
-  const { data, deleteTransaction } = useApp();
+  const { data, deleteTransaction, deletedTransactions, restoreTransaction } = useApp();
+  const [showDeleted,setShowDeleted]=useState(false);
+  const [showExport,setShowExport]=useState(false);
+  const [showImport,setShowImport]=useState(false);
   const [search, setSearch] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
@@ -31,36 +36,9 @@ export function TransactionsScreen() {
 
     return data.transactions.filter((t) => {
       if (q) {
-        // Build exhaustive searchable text string including custom fields
-        let customValuesStr = '';
-        if (t.customFields && typeof t.customFields === 'object') {
-          customValuesStr = Object.values(t.customFields)
-            .filter((v) => v !== null && v !== undefined)
-            .map((v) => String(v))
-            .join(' ');
-        }
-
-        const searchable = [
-          t.amount,
-          t.type,
-          t.heading,
-          t.majorCategory,
-          t.subCategory,
-          t.miniCategory,
-          t.remarks,
-          t.account,
-          t.paymentMode,
-          t.person,
-          t.purchasedFrom,
-          t.paymentFor,
-          t.incomeType,
-          t.investmentType,
-          t.date,
-          customValuesStr,
-        ]
-          .filter(Boolean)
-          .join(' ')
-          .toLowerCase();
+        // Include all present and future transaction fields and linked recurring details.
+        const recurring=data.recurring.find(r=>r.id===t.recurringTemplateId);
+        const searchable=searchableText({...t,recurring}).toLowerCase();
 
         if (!searchable.includes(q)) return false;
       }
@@ -95,51 +73,7 @@ export function TransactionsScreen() {
 
   // Export CSV Report (Section Y)
   function handleExportCSV() {
-    if (filtered.length === 0) {
-      alert('No transactions to export.');
-      return;
-    }
-
-    const headers = [
-      'Date',
-      'Transaction Type',
-      'Amount (INR)',
-      'Major Category',
-      'Sub-category',
-      'Source / Account',
-      'Payment Mode',
-      'Person',
-      'Purchased From',
-      'Payment For',
-      'Income Type',
-      'Investment Type',
-      'Remarks',
-    ];
-
-    const rows = filtered.map((t) => [
-      `"${t.date}"`,
-      `"${t.type}"`,
-      t.amount,
-      `"${t.majorCategory || ''}"`,
-      `"${t.subCategory || ''}"`,
-      `"${t.account || ''}"`,
-      `"${t.paymentMode || ''}"`,
-      `"${t.person || ''}"`,
-      `"${t.purchasedFrom || ''}"`,
-      `"${t.paymentFor || ''}"`,
-      `"${t.incomeType || ''}"`,
-      `"${t.investmentType || ''}"`,
-      `"${(t.remarks || '').replace(/"/g, '""')}"`,
-    ]);
-
-    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `Finance_Report_${todayISO()}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    setShowExport(true);
   }
 
   function handlePrint() {
@@ -246,6 +180,10 @@ export function TransactionsScreen() {
         </div>
       )}
 
+      <div className="flex flex-wrap gap-2 mb-3 text-xs"><button className="px-3 py-2 rounded-xl bg-cyan-600 text-white" onClick={()=>setShowImport(true)}>Upload expenses</button><button className="px-3 py-2 rounded-xl bg-slate-200 dark:bg-slate-700" onClick={()=>setShowDeleted(true)}>Deleted Transactions ({deletedTransactions.length})</button><button className="px-3 py-2 rounded-xl bg-slate-200 dark:bg-slate-700" onClick={()=>setShowExport(true)}>Reports / Export</button></div>
+      <Sheet open={showExport} onClose={()=>setShowExport(false)} title="Reports & Export"><ExportReport /></Sheet>
+      <Sheet open={showImport} onClose={()=>setShowImport(false)} title="Upload Expenses"><ImportExpenses /></Sheet>
+      <Sheet open={showDeleted} onClose={()=>setShowDeleted(false)} title="Deleted Transactions">{deletedTransactions.length===0?<p>No deleted transactions.</p>:deletedTransactions.map(t=><div key={t.id} className="border p-3 rounded-xl mb-2 text-xs"><b>{t.heading||t.type} · {formatCurrency(t.amount)}</b><p>{t.date} · {t.type} · {t.majorCategory} · {t.person}</p><p>Deleted: {t.deletedAt?new Date(t.deletedAt).toLocaleString('en-IN'):'Unknown'}</p><button className="bg-cyan-600 text-white rounded-xl p-2 mt-2" onClick={()=>restoreTransaction(t.id)}>Restore</button></div>)}</Sheet>
       {/* Transaction List */}
       {filtered.length === 0 ? (
         <p className="text-sm text-slate-400 dark:text-slate-500 text-center py-12">
@@ -282,8 +220,8 @@ export function TransactionsScreen() {
                     >
                       {t.type}
                     </span>
-                    <p className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate">
-                      {t.majorCategory || t.heading || t.type}
+                    <p className="text-xs font-bold text-slate-800 dark:text-slate-200 break-words">
+                      {t.heading || t.majorCategory || t.type}
                       {t.subCategory ? ` · ${t.subCategory}` : ''}
                       {t.person ? ` · ${t.person}` : ''}
                       {t.purchasedFrom ? ` · ${t.purchasedFrom}` : ''}
@@ -300,7 +238,7 @@ export function TransactionsScreen() {
                   </p>
 
                   {t.remarks && (
-                    <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5 line-clamp-2">
+                    <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5 whitespace-pre-wrap break-words">
                       {t.remarks}
                     </p>
                   )}
@@ -503,7 +441,7 @@ export function TransactionsScreen() {
       >
         <div className="space-y-4">
           <p className="text-sm text-slate-600 dark:text-slate-300">
-            Are you sure you want to delete this transaction? This action cannot be undone. All dashboard totals, receivable balances, and historical metrics will automatically recalculate.
+            Are you sure you want to delete this transaction? You can restore it from Deleted Transactions. All dashboard totals, receivable balances, and historical metrics will automatically recalculate.
           </p>
           <div className="flex gap-2">
             <button

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useApp } from '@/context/AppContext';
 import { TransactionForm } from '@/components/TransactionForm';
 import { Sheet } from '@/components/Sheet';
+import { FrequentSuggestions } from '@/components/FrequentSuggestions';
 import { Zap, X, Clock } from 'lucide-react';
 import { formatCurrency } from '@/data/format';
 import type { FrequentTransaction, Transaction } from '@/data/types';
@@ -34,6 +35,7 @@ export function AddExpenseScreen() {
         )}
       </div>
 
+
       {/* Horizontal Frequent Chips if any */}
       {frequentTransactions.length > 0 && (
         <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-3 mb-1">
@@ -51,10 +53,11 @@ export function AddExpenseScreen() {
         </div>
       )}
 
+      <FrequentSuggestions />
       {/* Primary Form */}
       <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-100 dark:border-slate-800 shadow-sm">
         <TransactionForm
-          key={selectedFrequent ? selectedFrequent.id + '-' + Date.now() : 'default-form'}
+          key={selectedFrequent ? selectedFrequent.id : 'default-form'}
           initialType={selectedFrequent ? selectedFrequent.type : 'Revenue Expense'}
           prefill={selectedFrequent ? {
             amount: selectedFrequent.amount,
@@ -75,6 +78,7 @@ export function AddExpenseScreen() {
           }}
         />
       </div>
+
 
       {/* Frequent Transactions Sheet */}
       <Sheet open={showFrequentSheet} onClose={() => setShowFrequentSheet(false)} title="Frequent Transactions">

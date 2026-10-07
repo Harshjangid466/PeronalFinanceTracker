@@ -18,6 +18,9 @@ import {
   normalizeTransactionType,
 } from '@/data/types';
 import { loadData, saveData, uid } from '@/data/storage';
+import { migrateData, projectMasters, financialEffect, dependencies, idFields, masterFields, patternKey, type MasterItem, type MasterKind } from '@/data/model';
+import { auditChanges } from '@/data/audit';
+import { mergeBackup } from '@/data/backup';
 import {
   addDays,
   addMonths,
@@ -25,6 +28,7 @@ import {
   todayISO,
   toPaise,
   toRupees,
+  allocatePercentages,
 } from '@/data/format';
 
 export interface PersonLedgerItem {
@@ -78,6 +82,14 @@ export interface SmallExpenseInsight {
 
 interface AppContextValue {
   data: AppData;
+  allData: AppData;
+  deletedTransactions: Transaction[];
+  restoreTransaction: (id:string)=>void;
+  configure: (updates:Partial<AppData>)=>void;
+  logAction: (action:string, entity:string, description:string)=>void;
+  manageMaster: (item:MasterItem)=>void;
+  removeMaster: (id:string)=>void;
+  importTransactions: (rows:Partial<Transaction>[])=>number;
   // Transactions
   addTransaction: (t: Partial<Transaction> & { amount: number; type: TransactionType; date?: string }) => Transaction;
   updateTransaction: (id: string, updates: Partial<Transaction>) => Transaction | null;
@@ -158,17 +170,64 @@ export function useApp(): AppContextValue {
 }
 
 export function AppProvider({ children }: { children: ReactNode }) {
-  const [data, setData] = useState<AppData>(() => loadData());
+  const [allData, setStoredData] = useState<AppData>(() => loadData());
+  const data = useMemo(()=>({...allData,transactions:allData.transactions.filter(t=>t.status==='active')}),[allData]);
+  function setData(update: AppData | ((prev:AppData)=>AppData)) {
+    setStoredData(prev=>{
+      const next=typeof update==='function'?update(structuredClone(prev)):update;
+      return auditChanges(prev,migrateData(next));
+    });
+  }
+  function configure(updates:Partial<AppData>) { setData(prev=>({...prev,...updates})); }
+  function logAction(action:string,entity:string,description:string) {
+    setStoredData(prev=>({...prev,actionLog:[...prev.actionLog,{id:uid(),timestamp:Date.now(),actionType:action,entityType:entity,entityId:entity,description}]}));
+  }
+  function restoreTransaction(id:string) { setData(prev=>({...prev,transactions:prev.transactions.map(t=>t.id===id?{...t,status:'active',deletedAt:undefined,updatedAt:Date.now()}:t)})); }
+  function manageMaster(item:MasterItem) {
+    if(allData.masters?.some(m=>m.id!==item.id&&m.kind===item.kind&&m.parentId===item.parentId&&m.name.toLowerCase()===item.name.toLowerCase()))throw new Error('That name already exists.');
+    setData(prev=>{
+      const existing=prev.masters?.find(m=>m.id===item.id);
+      if(prev.masters?.some(m=>m.id!==item.id && m.kind===item.kind && m.parentId===item.parentId && m.name.toLowerCase()===item.name.toLowerCase()))throw new Error('That name already exists.');
+      const masters=existing?prev.masters!.map(m=>m.id===item.id?{...item,updatedAt:Date.now()}:m):[...(prev.masters||[]),item];
+      let next=projectMasters({...prev,masters});
+      if(item.kind==='dropdownOption' && existing) {
+        const owner=prev.customFields.find(f=>f.id===item.parentId);
+        if(owner) {
+          for(const key of ['transactions','recurring','frequentTransactions','quickExpenses'] as const)(next as unknown as Record<string,unknown>)[key]=next[key].map(record=>{const t=record as unknown as {customFields?:Record<string,unknown>};const values={...t.customFields};if(Array.isArray(values[owner.key]))values[owner.key]=(values[owner.key] as unknown[]).map((v:unknown)=>v===existing.name?item.name:v);else if(values[owner.key]===existing.name)values[owner.key]=item.name;return {...record,customFields:values};});
+          next.customFields=next.customFields.map(f=>{const copy={...f};if(f.parentFieldKey===owner.key){if(f.parentOptionValue===existing.name)copy.parentOptionValue=item.name;if(f.dependentOptions&&existing.name in f.dependentOptions){copy.dependentOptions={...f.dependentOptions,[item.name]:f.dependentOptions[existing.name]};delete copy.dependentOptions[existing.name];}}if(f.id===owner.id&&f.dependentOptions)copy.dependentOptions=Object.fromEntries(Object.entries(f.dependentOptions).map(([key,values])=>[key,values.map(value=>value===existing.name?item.name:value)]));return copy;});
+        }
+      }
+      const refresh=(record:Record<string,unknown>)=>{
+        const copy={...record};
+        for(const [field,kind] of Object.entries(masterFields))if(kind===item.kind && (copy[idFields[field]]===item.id || existing && copy[field]===existing.name)) {copy[field]=item.name; copy[idFields[field]]=item.id;}
+        return copy;
+      };
+      for(const key of ['transactions','recurring','frequentTransactions','quickExpenses','receivables','repayments'] as const) (next as unknown as Record<string,unknown>)[key]=next[key].map(r=>refresh(r as unknown as Record<string,unknown>));
+      next.rules=next.rules.map(r=>({...r,enabled:!item.active && [...r.conditions,...r.actions].some(c=>c.valueId===item.id)?false:r.enabled,conditions:r.conditions.map(c=>c.valueId===item.id?{...c,value:item.name}:c),actions:r.actions.map(c=>c.valueId===item.id?{...c,value:item.name}:c)}));
+      return next;
+    });
+  }
+  function removeMaster(id:string) {
+    const item=allData.masters?.find(m=>m.id===id); if(!item)return;
+    const refs=dependencies(allData,item);
+    if(refs.transactions || refs.rules.length || refs.recurring || refs.mappings.length || refs.templates || refs.children)throw new Error('This value is referenced. Deactivate or resolve dependencies first.');
+    setData(prev=>projectMasters({...prev,masters:prev.masters?.filter(m=>m.id!==id)}));
+  }
+  function importTransactions(rows:Partial<Transaction>[]) {
+    const now=Date.now();
+    setData(prev=>({...prev,transactions:[...rows.map(row=>({...row,id:uid(),schemaVersion:4,type:row.type!,amount:row.amount!,amountMinor:Math.round(row.amount!*100),currency:'INR' as const,date:row.date!,createdAt:now,updatedAt:now,majorCategory:row.majorCategory||'',subCategory:row.subCategory||'',account:row.account||'',paymentMode:row.paymentMode||'',person:row.person||'',remarks:row.remarks||'',customFields:row.customFields||{},financialEffect:financialEffect(row.type!,Math.round(row.amount!*100)),status:'active' as const})),...prev.transactions]}));
+    logAction('import','transactions',`Imported ${rows.length} transactions`); return rows.length;
+  }
 
   useEffect(() => {
-    saveData(data);
-  }, [data]);
+    saveData(allData);
+  }, [allData]);
 
   // Scheduled execution for recurring payments with automaticPosting
   useEffect(() => {
     const today = todayISO();
     const dueRecurring = data.recurring.filter((r) => {
-      if (!r.automaticPosting || r.status === 'Paused' || r.status === 'Cancelled') return false;
+      if (!r.automaticPosting || r.status === 'Paused' || r.status === 'Cancelled' || r.status==='Completed') return false;
       const next = new Date(r.nextDueDate + 'T00:00:00');
       const todayDate = new Date(today + 'T00:00:00');
       return next <= todayDate && (!r.endDate || r.nextDueDate <= r.endDate);
@@ -178,13 +237,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     setData((prev) => {
       let updated = { ...prev };
-      for (const r of dueRecurring) {
-        // Prevent duplicate execution for this occurrence date
-        const alreadyPosted = updated.transactions.some(
-          (t) => t.recurringTemplateId === r.id && t.recurringOccurrenceDate === r.nextDueDate
-        );
-        if (!alreadyPosted) {
-          updated = postRecurringInData(updated, r.id);
+      for (const template of dueRecurring) {
+        let r=updated.recurring.find(x=>x.id===template.id);
+        while(r && r.nextDueDate<=today && r.status!=='Completed' && r.status!=='Cancelled' && (!r.endDate||r.nextDueDate<=r.endDate)) {
+          const date=r.nextDueDate;
+          if(updated.transactions.some(t=>t.recurringTemplateId===r!.id&&t.recurringOccurrenceDate===date)||updated.skippedOccurrences?.includes(`${r.id}|${date}`)) {
+            updated={...updated,recurring:updated.recurring.map(x=>x.id===r!.id?{...x,nextDueDate:computeNextDue(x)}:x)};
+          }else updated=postRecurringInData(updated,r.id);
+          r=updated.recurring.find(x=>x.id===template.id);
+          if(r?.nextDueDate===date)break;
         }
       }
       return updated;
@@ -214,12 +275,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   function postRecurringInData(prev: AppData, id: string): AppData {
     const r = prev.recurring.find((rec) => rec.id === id);
-    if (!r) return prev;
+    if (!r || r.status==='Cancelled' || r.status==='Completed' || r.status==='Paused') return prev;
+    if (prev.transactions.some(t=>t.recurringTemplateId===id && t.recurringOccurrenceDate===r.nextDueDate) || prev.skippedOccurrences?.includes(`${id}|${r.nextDueDate}`)) return prev;
 
     const normType = normalizeTransactionType(r.type);
     const amount = r.amount;
     const amountMinor = r.amountMinor ?? toPaise(amount);
-    const financialEffect = deriveFinancialEffect(normType, amount);
+    const effects = financialEffect(normType, amountMinor);
 
     const txn: Transaction = {
       id: uid(),
@@ -236,12 +298,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       subCategory: r.subCategory || '',
       paymentMode: r.paymentMode || '',
       account: r.account || '',
-      person: '',
+      person: r.person||'',purchasedFrom:r.purchasedFrom,paymentFor:r.paymentFor,incomeType:r.incomeType,investmentType:r.investmentType,
       remarks: (r.remarks ? r.remarks + ' ' : '') + '(Recurring mandate)',
       recurringTemplateId: r.id,
       recurringOccurrenceDate: r.nextDueDate,
       customFields: r.customFields || {},
-      financialEffect,
+      financialEffect: effects,
       status: 'active',
     };
 
@@ -256,7 +318,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           ? {
               ...rec,
               nextDueDate: nextDue,
-              status: shouldContinue ? rec.status : 'Cancelled',
+              status: shouldContinue ? 'Scheduled' : 'Completed',
             }
           : rec
       ),
@@ -269,7 +331,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const amount = Number(t.amount) || 0;
     const amountMinor = t.amountMinor ?? toPaise(amount);
     const date = t.date || todayISO();
-    const financialEffect = t.financialEffect || deriveFinancialEffect(normType, amount);
+    const effects = financialEffect(normType, amountMinor);
 
     const newTxn: Transaction = {
       id: uid(),
@@ -296,7 +358,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       recurringTemplateId: t.recurringTemplateId,
       recurringOccurrenceDate: t.recurringOccurrenceDate,
       customFields: t.customFields || {},
-      financialEffect,
+      financialEffect: effects,
       status: t.status || 'active',
       receivableId: t.receivableId,
     };
@@ -323,45 +385,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }
 
   function updateTransaction(id: string, updates: Partial<Transaction>): Transaction | null {
-    let updatedTxn: Transaction | null = null;
-    setData((prev) => {
-      const index = prev.transactions.findIndex((t) => t.id === id);
-      if (index === -1) return prev;
-
-      const current = prev.transactions[index];
-      const merged = { ...current, ...updates, updatedAt: Date.now() };
-
-      const type = normalizeTransactionType(merged.type);
-      const amount = Number(merged.amount) || 0;
-      merged.type = type;
-      merged.amount = amount;
-      merged.amountMinor = toPaise(amount);
-      merged.financialEffect = deriveFinancialEffect(type, amount);
-
-      updatedTxn = merged;
-      const nextTxns = [...prev.transactions];
-      nextTxns[index] = merged;
-
-      // Auto add person if introduced
-      let nextPeople = prev.people;
-      if (merged.person && !prev.people.includes(merged.person)) {
-        nextPeople = [...prev.people, merged.person];
-      }
-
-      return {
-        ...prev,
-        transactions: nextTxns,
-        people: nextPeople,
-      };
-    });
-
-    return updatedTxn;
+    const current=allData.transactions.find(t=>t.id===id);if(!current)return null;
+    const merged={...current,...updates,updatedAt:Date.now()};
+    for(const field of Object.keys(masterFields))if(field in updates)delete (merged as unknown as Record<string,unknown>)[idFields[field]];
+    merged.type=normalizeTransactionType(merged.type);merged.amountMinor=toPaise(merged.amount);merged.amount=merged.amountMinor/100;merged.financialEffect=financialEffect(merged.type,merged.amountMinor);
+    setData(prev=>({...prev,transactions:prev.transactions.map(t=>t.id===id?merged:t),people:merged.person&&!prev.people.includes(merged.person)?[...prev.people,merged.person]:prev.people}));
+    return merged;
   }
 
   function deleteTransaction(id: string) {
     setData((prev) => ({
       ...prev,
-      transactions: prev.transactions.filter((t) => t.id !== id),
+      transactions: prev.transactions.map((t) => t.id === id ? {...t,status:'deleted',deletedAt:Date.now(),updatedAt:Date.now()} : t),
     }));
   }
 
@@ -369,8 +404,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   function getPersonLedger(personName: string): PersonLedgerItem {
     const txns = data.transactions
       .filter((t) => t.person?.trim().toLowerCase() === personName.trim().toLowerCase())
-      .filter((t) => t.type === 'Lent' || t.type === 'Lent Recovered' || t.type === 'Money Lent' || t.type === 'Money Received')
-      .sort((a, b) => b.date.localeCompare(a.date) || b.createdAt - a.createdAt);
+      .filter((t) => normalizeTransactionType(t.type) === 'Lent' || normalizeTransactionType(t.type) === 'Lent Recovered')
+      .sort((a, b) => a.date.localeCompare(b.date) || a.createdAt - b.createdAt);
 
     let totalLent = 0;
     let totalRecovered = 0;
@@ -378,13 +413,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     for (const t of txns) {
       const norm = normalizeTransactionType(t.type);
       if (norm === 'Lent') {
-        totalLent += t.amount;
+        totalLent += t.amountMinor;
       } else if (norm === 'Lent Recovered') {
-        totalRecovered += t.amount;
+        totalRecovered += t.amountMinor;
       }
     }
 
-    const netBalance = totalLent - totalRecovered;
+    totalLent /= 100; totalRecovered /= 100;
+    const netBalance = Math.round((totalLent - totalRecovered)*100)/100;
     const status: PersonLedgerItem['status'] =
       netBalance > 0 ? 'owes_me' : netBalance < 0 ? 'i_owe' : 'settled';
 
@@ -501,7 +537,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       ...prev,
       receivables: prev.receivables.filter((r) => r.id !== id),
       repayments: prev.repayments.filter((r) => r.receivableId !== id),
-      transactions: prev.transactions.filter((t) => t.receivableId !== id),
+      transactions: prev.transactions.map((t) => t.receivableId === id ? {...t,status:'deleted',deletedAt:Date.now(),updatedAt:Date.now()} : t),
     }));
   }
 
@@ -512,7 +548,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       id: uid(),
       createdAt: Date.now(),
       nextDueDate: r.startDate,
-      status: 'Scheduled',
+      status: r.status || 'Scheduled',amountMinor:toPaise(r.amount),
     };
     setData((prev) => ({ ...prev, recurring: [rec, ...prev.recurring] }));
     return rec;
@@ -521,16 +557,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
   function updateRecurring(id: string, updates: Partial<Recurring>) {
     setData((prev) => ({
       ...prev,
-      recurring: prev.recurring.map((r) => (r.id === id ? { ...r, ...updates } : r)),
+      recurring: prev.recurring.map(r=>{if(r.id!==id)return r;const next={...r,...updates};if(updates.amount!==undefined)next.amountMinor=toPaise(updates.amount);for(const field of Object.keys(masterFields))if(field in updates)delete (next as unknown as Record<string,unknown>)[idFields[field]];return next;}),
     }));
   }
 
   function deleteRecurring(id: string) {
-    setData((prev) => ({ ...prev, recurring: prev.recurring.filter((r) => r.id !== id) }));
+    setData((prev) => ({ ...prev, recurring: prev.recurring.map((r) => r.id===id?{...r,status:'Cancelled'}:r) }));
   }
 
   function postRecurring(id: string) {
-    setData((prev) => postRecurringInData(prev, id));
+    const occurrence=data.recurring.find(r=>r.id===id)?.nextDueDate;
+    setData(prev=>prev.recurring.find(r=>r.id===id)?.nextDueDate===occurrence?postRecurringInData(prev,id):prev);
   }
 
   function skipRecurring(id: string) {
@@ -541,8 +578,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const shouldContinue = !r.endDate || nextDue <= r.endDate;
       return {
         ...prev,
+        skippedOccurrences:[...(prev.skippedOccurrences||[]),`${r.id}|${r.nextDueDate}`],
         recurring: prev.recurring.map((rec) =>
-          rec.id === id && shouldContinue ? { ...rec, nextDueDate: nextDue } : rec
+          rec.id === id ? { ...rec, nextDueDate: nextDue,status:shouldContinue?'Scheduled':'Completed' } : rec
         ),
       };
     });
@@ -553,7 +591,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!amount || amount <= 0) return;
     setData((prev) => {
       if (prev.quickAmounts.includes(amount)) return prev;
-      return { ...prev, quickAmounts: [...prev.quickAmounts, amount].sort((a, b) => a - b) };
+      return { ...prev, quickAmounts: [...prev.quickAmounts, amount] };
     });
   }
 
@@ -606,12 +644,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // Auto-detect repeated transaction patterns (Section P)
   function detectFrequentCandidates(): Array<Omit<FrequentTransaction, 'id' | 'createdAt'>> {
-    const txns = data.transactions.slice(0, 50);
+    const txns = data.transactions;
     const patternMap = new Map<string, { count: number; sample: Transaction }>();
 
     for (const t of txns) {
       const norm = normalizeTransactionType(t.type);
-      const key = `${norm}|${t.majorCategory}|${t.subCategory}|${t.paymentMode}|${t.account}|${t.person}|${t.amount}`;
+      const key = patternKey(t);
+      if (data.suppressedPatterns?.includes(key)) continue;
       const entry = patternMap.get(key) || { count: 0, sample: t };
       entry.count += 1;
       patternMap.set(key, entry);
@@ -634,7 +673,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             ? `${sample.majorCategory} - ${sample.subCategory}`
             : sample.person
             ? `${sample.type} - ${sample.person}`
-            : `${sample.majorCategory || sample.type} ₹${sample.amount}`;
+            : `${sample.majorCategory || sample.type} · ₹${sample.amount}`;
 
           candidates.push({
             label,
@@ -647,6 +686,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             person: sample.person,
             remarks: sample.remarks,
             useCount: count,
+            purchasedFrom:sample.purchasedFrom,paymentFor:sample.paymentFor,incomeType:sample.incomeType,investmentType:sample.investmentType,customFields:sample.customFields,
           });
         }
       }
@@ -698,13 +738,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setData((prev) => ({
       ...prev,
       customFields: prev.customFields.map((f) => (f.id === id ? { ...f, ...updates } : f)),
+      masters:prev.masters?.map(m=>m.kind==='dropdownOption'&&m.parentId===id&&updates.options?{...m,active:updates.options.includes(m.name)}:m),
     }));
   }
 
   function deleteCustomField(id: string) {
     setData((prev) => ({
       ...prev,
-      customFields: prev.customFields.filter((f) => f.id !== id),
+      customFields: prev.customFields.map((f) => f.id===id?{...f,enabled:false,active:false}:f),
     }));
   }
 
@@ -750,46 +791,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
     let incomeMisc = 0;
 
     for (const t of transactions) {
-      const norm = normalizeTransactionType(t.type);
-      switch (norm) {
-        case 'Revenue Expense':
-          revenueExpense += t.amount;
-          break;
-        case 'Lent':
-          lent += t.amount;
-          break;
-        case 'CAPEX':
-          capex += t.amount;
-          break;
-        case 'To Ghar':
-          toGhar += t.amount;
-          break;
-        case 'Investment':
-          investment += t.amount;
-          break;
-        case 'Lent Recovered':
-          lentRecovered += t.amount;
-          break;
-        case 'Income Misc':
-          incomeMisc += t.amount;
-          break;
-      }
+      if(t.status!=='active')continue;
+      const effect=financialEffect(t.type,t.amountMinor);
+      revenueExpense+=effect.personalExpense;lent+=effect.receivableIncrease;capex+=effect.capex;toGhar+=effect.toGhar;investment+=effect.investment;lentRecovered+=effect.receivableDecrease;incomeMisc+=effect.income;
     }
 
-    const totalOutflow = revenueExpense + lent + capex + toGhar + investment;
+    revenueExpense/=100; lent/=100; capex/=100; toGhar/=100; investment/=100; lentRecovered/=100; incomeMisc/=100;
+    const totalOutflow = Math.round((revenueExpense + lent + capex + toGhar + investment)*100)/100;
     const totalInflow = lentRecovered + incomeMisc;
 
+    const outflowShares = allocatePercentages([revenueExpense, lent, capex, toGhar, investment]);
+    const inflowShares = allocatePercentages([lentRecovered, incomeMisc]);
     const outflowPercentages = {
-      revenueExpense: totalOutflow > 0 ? (revenueExpense / totalOutflow) * 100 : 0,
-      lent: totalOutflow > 0 ? (lent / totalOutflow) * 100 : 0,
-      capex: totalOutflow > 0 ? (capex / totalOutflow) * 100 : 0,
-      toGhar: totalOutflow > 0 ? (toGhar / totalOutflow) * 100 : 0,
-      investment: totalOutflow > 0 ? (investment / totalOutflow) * 100 : 0,
+      revenueExpense: outflowShares[0],
+      lent: outflowShares[1],
+      capex: outflowShares[2],
+      toGhar: outflowShares[3],
+      investment: outflowShares[4],
     };
 
     const inflowPercentages = {
-      lentRecovered: totalInflow > 0 ? (lentRecovered / totalInflow) * 100 : 0,
-      incomeMisc: totalInflow > 0 ? (incomeMisc / totalInflow) * 100 : 0,
+      lentRecovered: inflowShares[0],
+      incomeMisc: inflowShares[1],
     };
 
     // Calculate all-time net receivables
@@ -844,7 +867,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     const guidanceList: BudgetGuidance[] = [];
     for (const [cat, info] of categoryMap.entries()) {
-      const monthsCount = Math.max(1, info.pastMonthsWithData.size);
+      if (info.pastMonthsWithData.size < 3) continue;
+      const monthsCount = 3;
       const threeMonthAvg = info.pastSum > 0 ? info.pastSum / monthsCount : info.current;
       const suggestedLevel = Math.round(threeMonthAvg > 0 ? threeMonthAvg : info.current);
       const usagePercentage = suggestedLevel > 0 ? Math.round((info.current / suggestedLevel) * 100) : 100;
@@ -853,7 +877,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (usagePercentage >= 80 && usagePercentage < 100) {
         warning = `You are at ${usagePercentage}% of your normal monthly ${cat} spending.`;
       } else if (usagePercentage >= 100 && suggestedLevel > 0) {
-        warning = `Exceeded normal monthly ${cat} spending (${usagePercentage}%).`;
+        warning = `Above your usual spending for ${cat} (${usagePercentage}%).`;
       }
 
       guidanceList.push({
@@ -896,110 +920,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // Backup & Restore (Section V)
   function exportBackup(): string {
+    logAction('backup','backup','Downloaded complete backup');
     const backupObj = {
-      backupFormatVersion: 2,
-      appVersion: '2.0.0',
+      backupFormatVersion: 4,
+      appVersion: '4.0.0',
       exportedAt: new Date().toISOString(),
-      data,
+      data: allData,
     };
     return JSON.stringify(backupObj, null, 2);
   }
 
   function restoreBackup(jsonContent: string): { success: boolean; message: string; count?: number } {
     try {
-      const parsed = JSON.parse(jsonContent);
-      const backupData = parsed.data || parsed;
-
-      if (!backupData || (!Array.isArray(backupData.transactions) && !Array.isArray(backupData.categories))) {
-        return { success: false, message: 'Invalid backup file format.' };
-      }
-
-      // Merge transactions avoiding duplicates by ID
-      const currentIds = new Set(data.transactions.map((t) => t.id));
-      const incomingTxns: Transaction[] = [];
-
-      for (const raw of backupData.transactions || []) {
-        if (!currentIds.has(raw.id)) {
-          const type = normalizeTransactionType(raw.type || 'Revenue Expense');
-          const amount = Number(raw.amount) || 0;
-          incomingTxns.push({
-            id: raw.id || uid(),
-            schemaVersion: 2,
-            type,
-            heading: raw.heading || '',
-            amount,
-            amountMinor: typeof raw.amountMinor === 'number' ? raw.amountMinor : toPaise(amount),
-            currency: 'INR',
-            date: raw.date || todayISO(),
-            createdAt: raw.createdAt || Date.now(),
-            updatedAt: raw.updatedAt || Date.now(),
-            majorCategory: raw.majorCategory || '',
-            subCategory: raw.subCategory || '',
-            miniCategory: raw.miniCategory || '',
-            paymentMode: raw.paymentMode || '',
-            account: raw.account || '',
-            person: raw.person || '',
-            purchasedFrom: raw.purchasedFrom || '',
-            paymentFor: raw.paymentFor || '',
-            incomeType: raw.incomeType || '',
-            investmentType: raw.investmentType || '',
-            remarks: raw.remarks || '',
-            recurringTemplateId: raw.recurringTemplateId,
-            recurringOccurrenceDate: raw.recurringOccurrenceDate,
-            customFields: raw.customFields || {},
-            financialEffect: raw.financialEffect || deriveFinancialEffect(type, amount),
-            status: raw.status || 'active',
-            receivableId: raw.receivableId,
-          });
-        }
-      }
-
-      // Merge lists
-      const mergedCategories = [...data.categories];
-      for (const cat of backupData.categories || []) {
-        const found = mergedCategories.find((c) => c.name === cat.name);
-        if (!found) {
-          mergedCategories.push(cat);
-        } else {
-          for (const sub of cat.subCategories || []) {
-            if (!found.subCategories.includes(sub)) found.subCategories.push(sub);
-          }
-        }
-      }
-
-      const mergedAccounts = Array.from(new Set([...data.accounts, ...(backupData.accounts || [])]));
-      const mergedPaymentModes = Array.from(new Set([...data.paymentModes, ...(backupData.paymentModes || [])]));
-      const mergedPeople = Array.from(new Set([...data.people, ...(backupData.people || [])]));
-      const mergedQuickAmounts = Array.from(new Set([...data.quickAmounts, ...(backupData.quickAmounts || [])]));
-      const mergedCustomFields = [...data.customFields];
-      for (const cf of backupData.customFields || []) {
-        if (!mergedCustomFields.some((f) => f.id === cf.id || f.key === cf.key)) {
-          mergedCustomFields.push(cf);
-        }
-      }
-
-      const restoredData: AppData = {
-        ...data,
-        transactions: [...incomingTxns, ...data.transactions],
-        categories: mergedCategories,
-        accounts: mergedAccounts,
-        paymentModes: mergedPaymentModes,
-        people: mergedPeople,
-        quickAmounts: mergedQuickAmounts,
-        customFields: mergedCustomFields,
-      };
-
-      setData(restoredData);
-      saveData(restoredData);
-
-      return {
-        success: true,
-        message: `Backup restored successfully! Added ${incomingTxns.length} new transactions.`,
-        count: incomingTxns.length,
-      };
-    } catch (err: any) {
-      return { success: false, message: 'Failed to restore: ' + (err.message || 'Unknown error') };
-    }
+      const restored=mergeBackup(allData,jsonContent);
+      const count=restored.transactions.length-allData.transactions.length;
+      setData(restored); logAction('restore','backup',`Merged backup: ${count} added transactions, configuration and history preserved`);
+      return {success:true,message:`Backup merged. Added ${count} transactions; existing records were retained.`,count};
+    } catch(error) {return {success:false,message:error instanceof Error?error.message:'Invalid backup'};}
   }
 
   // Settings helpers
@@ -1017,10 +954,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }));
   }
   function deleteCategory(name: string) {
-    setData((prev) => ({
-      ...prev,
-      categories: prev.categories.filter((c) => c.name !== name),
-    }));
+    const item=allData.masters?.find(m=>m.kind==='category' && m.name===name);
+    if(item)manageMaster({...item,active:false});
   }
   function addSubCategory(category: string, name: string) {
     setData((prev) => ({
@@ -1047,7 +982,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setData((prev) => (prev.accounts.includes(name) ? prev : { ...prev, accounts: [...prev.accounts, name] }));
   }
   function deleteAccount(name: string) {
-    setData((prev) => ({ ...prev, accounts: prev.accounts.filter((a) => a !== name) }));
+    const item=allData.masters?.find(m=>m.kind==='source' && m.name===name);
+    if(item)manageMaster({...item,active:false});
   }
   function addPaymentMode(name: string) {
     setData((prev) =>
@@ -1055,13 +991,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
     );
   }
   function deletePaymentMode(name: string) {
-    setData((prev) => ({ ...prev, paymentModes: prev.paymentModes.filter((p) => p !== name) }));
+    const item=allData.masters?.find(m=>m.kind==='paymentMode' && m.name===name);
+    if(item)manageMaster({...item,active:false});
   }
   function addPerson(name: string) {
     setData((prev) => (prev.people.includes(name) ? prev : { ...prev, people: [...prev.people, name] }));
   }
   function deletePerson(name: string) {
-    setData((prev) => ({ ...prev, people: prev.people.filter((p) => p !== name) }));
+    const item=allData.masters?.find(m=>m.kind==='person' && m.name===name);
+    if(item)manageMaster({...item,active:false});
   }
 
   function addCapexPurchasedFrom(name: string) {
@@ -1072,10 +1010,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     );
   }
   function deleteCapexPurchasedFrom(name: string) {
-    setData((prev) => ({
-      ...prev,
-      capexPurchasedFrom: (prev.capexPurchasedFrom || []).filter((x) => x !== name),
-    }));
+    const item=allData.masters?.find(m=>m.kind==='merchant' && m.name===name);
+    if(item)manageMaster({...item,active:false});
   }
 
   function addToGharPaymentFor(name: string) {
@@ -1086,10 +1022,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     );
   }
   function deleteToGharPaymentFor(name: string) {
-    setData((prev) => ({
-      ...prev,
-      toGharPaymentFor: (prev.toGharPaymentFor || []).filter((x) => x !== name),
-    }));
+    const item=allData.masters?.find(m=>m.kind==='purpose' && m.name===name);
+    if(item)manageMaster({...item,active:false});
   }
 
   function addIncomeType(name: string) {
@@ -1100,10 +1034,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     );
   }
   function deleteIncomeType(name: string) {
-    setData((prev) => ({
-      ...prev,
-      incomeTypes: (prev.incomeTypes || []).filter((x) => x !== name),
-    }));
+    const item=allData.masters?.find(m=>m.kind==='incomeType' && m.name===name);
+    if(item)manageMaster({...item,active:false});
   }
 
   function addInvestmentType(name: string) {
@@ -1114,10 +1046,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     );
   }
   function deleteInvestmentType(name: string) {
-    setData((prev) => ({
-      ...prev,
-      investmentTypes: (prev.investmentTypes || []).filter((x) => x !== name),
-    }));
+    const item=allData.masters?.find(m=>m.kind==='investmentType' && m.name===name);
+    if(item)manageMaster({...item,active:false});
   }
 
   function updateFormFields(fields: FieldConfig[]) {
@@ -1138,7 +1068,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }
 
   const value: AppContextValue = {
-    data,
+    data, allData, deletedTransactions:allData.transactions.filter(t=>t.status==='deleted'),restoreTransaction,configure,logAction,manageMaster,removeMaster,importTransactions,
     addTransaction,
     updateTransaction,
     deleteTransaction,

@@ -21,3 +21,8 @@ dist-ssr
 *.sln
 *.sw?
 .env
+.env.*
+!.env.example
+finance_tracker_backup*.json
+Finance_Import_Template*.xlsx
+.netlify

@@ -1,0 +1,11 @@
+import {useEffect,useState,useRef} from 'react';
+const dirty=new Set<string>();
+export const hasUnsavedChanges=()=>dirty.size>0;
+export function clearSheetDraft(){const id=typeof document!=='undefined'?document.activeElement?.closest('[data-finance-sheet]')?.getAttribute('data-finance-sheet'):null;if(id)setDirty(id,false);}
+export const modalStack:string[]=[];
+export function setDirty(id:string,value:boolean){if(value)dirty.add(id);else dirty.delete(id);}
+export function requestNavigation(proceed:()=>void){if(!dirty.size)proceed();else window.dispatchEvent(new CustomEvent('finance-unsaved',{detail:proceed}));}
+export function useDraftGuard(){const id=useRef('draft_'+Math.random().toString(36).slice(2));useEffect(()=>()=>setDirty(id.current,false),[]);return{mark:()=>setDirty(id.current,true),clear:()=>setDirty(id.current,false)};}
+export function NavigationGuard(){const[pending,setPending]=useState<(()=>void)|null>(null);const[storageError,setStorageError]=useState('');useEffect(()=>{const onRequest=(e:Event)=>setPending(()=>(e as CustomEvent<()=>void>).detail);const onError=(e:Event)=>setStorageError((e as CustomEvent<string>).detail);const unload=(e:BeforeUnloadEvent)=>{if(dirty.size){e.preventDefault();e.returnValue='';}};window.addEventListener('finance-unsaved',onRequest);window.addEventListener('finance-storage-error',onError);window.addEventListener('beforeunload',unload);return()=>{window.removeEventListener('finance-unsaved',onRequest);window.removeEventListener('finance-storage-error',onError);window.removeEventListener('beforeunload',unload);};},[]);
+  return <>{storageError&&<div role="alert" className="fixed top-0 inset-x-0 bg-rose-100 text-rose-900 p-3 z-[90]">{storageError}<button onClick={()=>setStorageError('')}>Dismiss</button></div>}{pending&&<div className="fixed inset-0 z-[100] bg-black/50 flex items-center justify-center p-5"><div role="dialog" aria-modal="true" aria-label="Discard unsaved changes?" className="bg-white dark:bg-slate-900 rounded-2xl p-5 space-y-4"><h2>Discard unsaved changes?</h2><div className="flex gap-3"><button className="rounded-xl p-3 bg-cyan-600 text-white" onClick={()=>setPending(null)}>Stay</button><button className="rounded-xl p-3 bg-slate-200 dark:bg-slate-700" onClick={()=>{dirty.clear();const action=pending;setPending(null);action();}}>Discard</button></div></div></div>}</>;
+}

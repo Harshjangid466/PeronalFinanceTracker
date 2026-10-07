@@ -40,3 +40,27 @@
     -moz-appearance: none;
   }
 }
+
+/* Keep every editable control readable, including custom fields and native menus. */
+html { color-scheme: light; }
+html.dark { color-scheme: dark; }
+html.dark body { background-color: #020617; color: #f1f5f9; }
+html input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="button"]):not([type="submit"]),
+html textarea, html select, html select option, html select optgroup {
+  color: #0f172a;
+  background-color: #ffffff;
+  caret-color: #0f172a;
+}
+html.dark input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="button"]):not([type="submit"]),
+html.dark textarea, html.dark select, html.dark select option, html.dark select optgroup {
+  color: #ffffff;
+  background-color: #0f172a;
+  caret-color: #ffffff;
+}
+html input::placeholder, html textarea::placeholder { color: #64748b; opacity: 1; }
+html.dark input::placeholder, html.dark textarea::placeholder { color: #94a3b8; opacity: 1; }
+html.dark input:-webkit-autofill, html.dark textarea:-webkit-autofill, html.dark select:-webkit-autofill {
+  -webkit-text-fill-color: #ffffff;
+  box-shadow: 0 0 0 1000px #0f172a inset;
+  caret-color: #ffffff;
+}

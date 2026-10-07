@@ -1,14 +1,26 @@
 import { useState, useMemo } from 'react';
 import { useApp } from '@/context/AppContext';
-import type { Frequency, TransactionType } from '@/data/types';
+import {visibleField} from '@/data/model';
+import type { Recurring, Frequency, TransactionType } from '@/data/types';
 import { CORE_TRANSACTION_TYPES } from '@/data/types';
 import { formatCurrency, formatDate, formatDateShort, daysFromToday, todayISO } from '@/data/format';
 import { Plus, Repeat, Trash2, Check, SkipForward, Calendar, Pause, Play, Clock } from 'lucide-react';
 import { Sheet } from '@/components/Sheet';
+import {DynamicFields} from '@/components/DynamicFields';
 
 export function RecurringScreen() {
   const { data, addRecurring, updateRecurring, deleteRecurring, postRecurring, skipRecurring } = useApp();
   const [showAdd, setShowAdd] = useState(false);
+  const [status,setStatus]=useState<Recurring['status']>('Scheduled');
+  const [formError,setFormError]=useState('');
+  const [editing,setEditing]=useState<string|null>(null);
+  const [nextDate,setNextDate]=useState(todayISO());
+  const [customValues,setCustomValues]=useState<Record<string,unknown>>({});
+  const [person,setPerson]=useState('');
+  const [merchant,setMerchant]=useState('');
+  const [purpose,setPurpose]=useState('');
+  const [income,setIncome]=useState('');
+  const [investment,setInvestment]=useState('');
 
   // Form state
   const [description, setDescription] = useState('');
@@ -30,7 +42,7 @@ export function RecurringScreen() {
   const upcoming = useMemo(
     () =>
       data.recurring
-        .filter((r) => r.status !== 'Cancelled' && r.status !== 'Paused')
+        .filter((r) => r.status !== 'Cancelled' && r.status !== 'Paused' && r.status !== 'Completed')
         .sort((a, b) => a.nextDueDate.localeCompare(b.nextDueDate)),
     [data.recurring]
   );
@@ -41,7 +53,7 @@ export function RecurringScreen() {
   );
 
   function resetForm() {
-    setDescription('');
+    setDescription('');setStatus('Scheduled');setFormError('');
     setAmount('');
     setType('Revenue Expense');
     setMajorCategory(data.categories[0]?.name ?? 'Bills & Utilities');
@@ -53,12 +65,14 @@ export function RecurringScreen() {
     setStartDate(todayISO());
     setEndDate('');
     setAutomaticPosting(true);
-    setRemarks('');
+    setRemarks('');setPerson('');setMerchant('');setPurpose('');setIncome('');setInvestment('');setCustomValues({});
   }
 
   function handleAdd() {
-    if (!description.trim() || !amount) return;
-    addRecurring({
+    const money=Number(amount);const required=data.customFields.filter(f=>f.required&&(!f.applicableTypes.length||f.applicableTypes.includes(type))&&visibleField(f,data.customFields,customValues));
+    if (!description.trim() || !Number.isFinite(money)||money<=0||Math.abs(money*100-Math.round(money*100))>1e-6||!Number.isSafeInteger(Math.round(money*100))||nextDate<startDate||(endDate&&endDate<nextDate)||frequency==='Custom'&&(!Number.isInteger(Number(customIntervalDays))||Number(customIntervalDays)<1)) {setFormError('Check the description, amount, dates and interval.');return;}
+    if(['Lent','Lent Recovered'].includes(type)&&!person||['Revenue Expense','CAPEX'].includes(type)&&!majorCategory||type==='To Ghar'&&!purpose||type==='Income Misc'&&!income||type==='Investment'&&!investment||required.some(f=>customValues[f.key]===undefined||customValues[f.key]===''||Array.isArray(customValues[f.key])&&!(customValues[f.key] as unknown[]).length)){setFormError('Complete the required fields for this transaction type.');return;}
+    const payload = {
       description: description.trim(),
       amount: parseFloat(amount),
       type,
@@ -72,8 +86,11 @@ export function RecurringScreen() {
       endDate: endDate || undefined,
       automaticPosting,
       remarks: remarks.trim(),
-      status: 'Scheduled',
-    });
+      status,person,purchasedFrom:merchant,paymentFor:purpose,incomeType:income,investmentType:investment,customFields:customValues,
+    };
+    if(editing)updateRecurring(editing,{...payload,nextDueDate:nextDate});
+    else {const created=addRecurring(payload);updateRecurring(created.id,{nextDueDate:nextDate});}
+    setEditing(null);
     resetForm();
     setShowAdd(false);
   }
@@ -91,13 +108,14 @@ export function RecurringScreen() {
           <p className="text-xs text-slate-500 dark:text-slate-400">EMIs, Subscriptions & Mandates</p>
         </div>
         <button
-          onClick={() => setShowAdd(true)}
+          onClick={() => {resetForm();setEditing(null);setNextDate(todayISO());setCustomValues({});setShowAdd(true);}}
           className="flex items-center gap-1 px-3 py-2 rounded-xl bg-cyan-600 text-white text-xs font-semibold active:scale-95 transition-transform"
         >
-          <Plus size={16} /> Add Schedule
+          <Plus size={16} /> Add EMI / Mandate
         </button>
       </div>
 
+      <p className="text-xs text-slate-500">Automatic posting runs on app opening. Background/server posting is not connected.</p>
       {/* Upcoming Section */}
       <div>
         <div className="flex items-center gap-2 mb-2">
@@ -222,6 +240,7 @@ export function RecurringScreen() {
                 </div>
 
                 <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                  <button onClick={()=>{setEditing(r.id);setStatus(r.status);setDescription(r.description);setAmount(String(r.amount));setType(r.type);setMajorCategory(r.majorCategory);setSubCategory(r.subCategory);setAccount(r.account);setPaymentMode(r.paymentMode);setFrequency(r.frequency);setCustomIntervalDays(String(r.customIntervalDays||''));setStartDate(r.startDate);setNextDate(r.nextDueDate);setEndDate(r.endDate||'');setAutomaticPosting(r.automaticPosting);setRemarks(r.remarks||'');setCustomValues(r.customFields||{});setPerson(r.person||'');setMerchant(r.purchasedFrom||'');setPurpose(r.paymentFor||'');setIncome(r.incomeType||'');setInvestment(r.investmentType||'');setShowAdd(true);}}>Edit</button><span className="text-xs">{r.status}</span>
                   <button
                     onClick={() => togglePause(r)}
                     className="p-1.5 text-slate-400 hover:text-cyan-600"
@@ -246,7 +265,7 @@ export function RecurringScreen() {
       </div>
 
       {/* Add Recurring Sheet */}
-      <Sheet open={showAdd} onClose={() => setShowAdd(false)} title="New Recurring Mandate">
+      <Sheet open={showAdd} onClose={() => setShowAdd(false)} title={editing?'Edit EMI / Mandate':'New EMI / Mandate'}>
         <div className="space-y-3">
           <div>
             <label className="text-xs font-semibold text-slate-600 dark:text-slate-400 block mb-1">
@@ -411,7 +430,7 @@ export function RecurringScreen() {
               <input
                 type="date"
                 value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
+                onChange={(e) => {setStartDate(e.target.value);if(!editing)setNextDate(e.target.value);}}
                 className="w-full px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 outline-none text-xs"
               />
             </div>
@@ -428,10 +447,18 @@ export function RecurringScreen() {
             </div>
           </div>
 
+          <label className="block text-xs">Next due date<input className="w-full border rounded-xl p-2" type="date" value={nextDate} onChange={e=>setNextDate(e.target.value)}/></label>
+          {(['Lent','Lent Recovered'].includes(type))&&<label className="block text-xs">Person<input className="w-full border rounded-xl p-2" value={person} onChange={e=>setPerson(e.target.value)}/></label>}
+          {type==='CAPEX'&&<label className="block text-xs">Purchased From<input className="w-full border rounded-xl p-2" value={merchant} onChange={e=>setMerchant(e.target.value)}/></label>}
+          {type==='To Ghar'&&<label className="block text-xs">Payment For<input className="w-full border rounded-xl p-2" value={purpose} onChange={e=>setPurpose(e.target.value)}/></label>}
+          {type==='Income Misc'&&<label className="block text-xs">Income Type<input className="w-full border rounded-xl p-2" value={income} onChange={e=>setIncome(e.target.value)}/></label>}
+          {type==='Investment'&&<label className="block text-xs">Investment Type<input className="w-full border rounded-xl p-2" value={investment} onChange={e=>setInvestment(e.target.value)}/></label>}
+          <label className="block text-xs">Remarks<textarea className="w-full border rounded-xl p-2" value={remarks} onChange={e=>setRemarks(e.target.value)}/></label>
+          <DynamicFields fields={data.customFields.filter(f=>!f.applicableTypes.length||f.applicableTypes.includes(type))} values={customValues} onChange={(key,value)=>setCustomValues({...customValues,[key]:value})}/>
           <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
             <div>
               <p className="text-xs font-bold text-slate-800 dark:text-slate-200">Automatic Posting</p>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400">Post transaction automatically when due</p>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">Posts overdue entries when you open the app. Server background posting is not connected.</p>
             </div>
             <button
               type="button"
@@ -448,6 +475,7 @@ export function RecurringScreen() {
             </button>
           </div>
 
+          <label className="block text-xs">Status<select className="w-full p-2 rounded-xl border dark:bg-slate-800" value={status} onChange={e=>setStatus(e.target.value as Recurring['status'])}>{['Scheduled','Paused','Completed','Cancelled'].map(value=><option key={value}>{value}</option>)}</select></label>{formError&&<p role="alert" className="text-rose-600 text-xs">{formError}</p>}
           <button
             onClick={handleAdd}
             disabled={!description.trim() || !amount}

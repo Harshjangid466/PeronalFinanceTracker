@@ -1,4 +1,4 @@
-const CACHE_NAME = "finance-tracker-v1";
+const CACHE_NAME = "finance-tracker-v2";
 const ASSETS = ["/", "/index.html", "/manifest.json", "/icons/icon-192.svg", "/icons/icon-512.svg"];
 
 self.addEventListener("install", (event) => {
@@ -28,7 +28,10 @@ self.addEventListener("fetch", (event) => {
           return response;
         })
         .catch(() => cached);
-      return cached || fetchPromise;
+      // Application code uses the network when available, with an explicit offline fallback.
+      return fetchPromise.catch(() => cached || Response.error()).then(
+        (response) => response || cached || Response.error()
+      );
     })
   );
 });
