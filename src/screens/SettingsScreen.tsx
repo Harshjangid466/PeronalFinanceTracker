@@ -27,6 +27,7 @@ import {
   TrendingUp,
   Sparkles,
 } from 'lucide-react';
+import {CloudSyncPanel} from '@/components/CloudSyncPanel';
 import { Sheet } from '@/components/Sheet';
 import { MastersManager, MappingManager, RulesManager, AuditViewer, ExtendedFieldsManager } from '@/components/ConfigurationTools';
 import { RecurringScreen } from './RecurringScreen';
@@ -49,6 +50,7 @@ export function SettingsScreen() {
   const [theme, updateTheme] = useState<Theme>(getTheme);
   const {
     data,
+    cloudSync,
     addCategory,
     deleteCategory,
     updateCategory,
@@ -86,7 +88,7 @@ export function SettingsScreen() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   useEffect(()=>{const editRule=()=>setSection('rules');window.addEventListener('finance-edit-rule',editRule);return()=>window.removeEventListener('finance-edit-rule',editRule);},[]);
   const [restoreStatus, setRestoreStatus] = useState<string | null>(null);
-  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced'>('idle');
+  const syncStatus = cloudSync.busy ? 'syncing' : cloudSync.connected && !cloudSync.error && !cloudSync.conflicts.length ? 'synced' : 'idle';
 
   function handleExportFile() {
     const jsonStr = exportBackup();
@@ -124,7 +126,7 @@ export function SettingsScreen() {
   }
 
   function handleSyncNow() {
-    alert('Cloud sync is not connected yet. Your data is stored in this browser. Use Backup & Restore to save a copy.');
+    setSection('sync');
   }
 
   const sections: Array<{
@@ -149,7 +151,7 @@ export function SettingsScreen() {
     { id: 'incomeTypes', label: 'Income Misc Types', icon: Briefcase, count: data.incomeTypes?.length || 0 },
     { id: 'investmentTypes', label: 'Investment Types', icon: TrendingUp, count: data.investmentTypes?.length || 0 },
     { id: 'backupRestore', label: 'Backup & Restore', icon: Download, badge: 'v4 JSON' },
-    { id: 'sync', label: 'Multi-Device Sync', icon: RefreshCw, badge: 'Offline-Ready' },
+    { id: 'sync', label: 'Multi-Device Sync', icon: RefreshCw, badge: cloudSync.connected ? 'Connected' : 'Connect' },
   ];
 
   return (
@@ -175,9 +177,9 @@ export function SettingsScreen() {
           </div>
           <div>
             <p className="text-xs font-bold text-slate-800 dark:text-slate-200">
-              {syncStatus === 'synced' ? 'Synchronized' : 'Offline Storage Active'}
+              {cloudSync.connected ? 'Cloud Sync Connected' : 'Offline Storage Active'}
             </p>
-            <p className="text-[11px] text-slate-400">Saved in this browser · Cloud sync not connected</p>
+            <p className="text-[11px] text-slate-400">{cloudSync.status}</p>
           </div>
         </div>
 
@@ -346,29 +348,7 @@ export function SettingsScreen() {
 
       {/* 12. MULTI-DEVICE SYNC (Section X) */}
       <Sheet open={section === 'sync'} onClose={() => setSection(null)} title="Multi-Device Cloud Sync">
-        <div className="space-y-4">
-          <p className="text-xs text-slate-600 dark:text-slate-400">
-            The Personal Finance Tracker works 100% offline-first. Transactions are safely persisted in local browser storage on your device.
-          </p>
-
-          <div className="bg-cyan-50 dark:bg-cyan-950/40 border border-cyan-100 dark:border-cyan-800 rounded-2xl p-3.5 space-y-2">
-            <h3 className="text-xs font-bold text-cyan-900 dark:text-cyan-200">Sync Architecture</h3>
-            <p className="text-[11px] text-cyan-800 dark:text-cyan-300 leading-relaxed">
-              Local/Offline Data ↔ Sync Layer ↔ Supabase Cloud ↔ Other Devices (iPhone, iPad, Windows).
-            </p>
-          </div>
-
-          <div className="space-y-2">
-            <button
-              onClick={handleSyncNow}
-              disabled={syncStatus === 'syncing'}
-              className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-cyan-600 text-white text-xs font-semibold active:scale-95 transition-transform"
-            >
-              <RefreshCw size={16} className={syncStatus === 'syncing' ? 'animate-spin' : ''} />
-              {syncStatus === 'syncing' ? 'Syncing with local storage...' : 'Sync Now'}
-            </button>
-          </div>
-        </div>
+        <CloudSyncPanel />
       </Sheet>
     </div>
   );

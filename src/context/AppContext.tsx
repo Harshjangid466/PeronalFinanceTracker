@@ -18,7 +18,8 @@ import {
   normalizeTransactionType,
 } from '@/data/types';
 import { loadData, saveData, uid } from '@/data/storage';
-import { migrateData, projectMasters, financialEffect, dependencies, idFields, masterFields, patternKey, type MasterItem, type MasterKind } from '@/data/model';
+import { migrateData, projectMasters, stableId, financialEffect, dependencies, idFields, masterFields, patternKey, type MasterItem, type MasterKind } from '@/data/model';
+import {useCloudSync, type CloudSync} from './useCloudSync';
 import { auditChanges } from '@/data/audit';
 import { mergeBackup } from '@/data/backup';
 import {
@@ -81,6 +82,7 @@ export interface SmallExpenseInsight {
 }
 
 interface AppContextValue {
+  cloudSync:CloudSync;
   data: AppData;
   allData: AppData;
   deletedTransactions: Transaction[];
@@ -171,6 +173,7 @@ export function useApp(): AppContextValue {
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [allData, setStoredData] = useState<AppData>(() => loadData());
+  const cloudSync=useCloudSync(allData,setStoredData);
   const data = useMemo(()=>({...allData,transactions:allData.transactions.filter(t=>t.status==='active')}),[allData]);
   function setData(update: AppData | ((prev:AppData)=>AppData)) {
     setStoredData(prev=>{
@@ -284,7 +287,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const effects = financialEffect(normType, amountMinor);
 
     const txn: Transaction = {
-      id: uid(),
+      id: stableId('occurrence', `${r.id}|${r.nextDueDate}`),
       schemaVersion: 2,
       type: normType,
       heading: r.description,
@@ -1068,6 +1071,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }
 
   const value: AppContextValue = {
+    cloudSync,
     data, allData, deletedTransactions:allData.transactions.filter(t=>t.status==='deleted'),restoreTransaction,configure,logAction,manageMaster,removeMaster,importTransactions,
     addTransaction,
     updateTransaction,

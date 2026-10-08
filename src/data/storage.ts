@@ -8,7 +8,8 @@ const STORAGE_KEY_V1 = 'finance-tracker-data-v1';
 
 export function loadData(): AppData {
   try {
-    let raw = localStorage.getItem(STORAGE_KEY_V2);
+    const cloudOwner=localStorage.getItem('finance-cloud-owner');
+    let raw = (cloudOwner && localStorage.getItem(`finance-cloud-cache-${cloudOwner}`)) || localStorage.getItem(STORAGE_KEY_V2);
     let isV1 = false;
     if (!raw) {
       raw = localStorage.getItem(STORAGE_KEY_V1);
@@ -143,6 +144,8 @@ export function saveData(data: AppData): void {
     localStorage.setItem(STORAGE_KEY_V2, serialized);
     // Also keep backward-compatible sync
     localStorage.setItem(STORAGE_KEY_V1, serialized);
+    const owner=localStorage.getItem('finance-cloud-owner');
+    if(owner)localStorage.setItem(`finance-cloud-cache-${owner}`,serialized);
   } catch {
     window.dispatchEvent(new CustomEvent("finance-storage-error", {detail:"Changes could not be saved. Download a backup now; browser storage may be full."}));
   }

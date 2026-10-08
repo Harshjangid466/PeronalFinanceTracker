@@ -25,7 +25,8 @@ function AppContent() {
   }
 
   useEffect(()=>{
-    window.history.replaceState({financeView:'home'},'',window.location.pathname);
+    // Leave the sign-in callback intact until Supabase has consumed it.
+    if(!window.location.hash.includes('access_token=')&&!new URLSearchParams(window.location.search).has('code'))window.history.replaceState({financeView:'home'},'',window.location.pathname);
     const back=()=>{if(modalStack.length)return;const previous=window.history.state?.financeView||'home';if(hasUnsavedChanges())window.history.pushState({financeView:currentView.current},'',`#${currentView.current}`);requestNavigation(()=>{window.history.replaceState({financeView:previous},'',`#${previous}`);setTab(previous);});};
     const escape=(e:KeyboardEvent)=>{if(e.key==='Escape'&&!modalStack.length)requestNavigation(()=>{setTab('home');});};
     window.addEventListener('popstate',back);window.addEventListener('keydown',escape);
