@@ -1,0 +1,13 @@
+{
+  "name": "Personal Finance Tracker",
+  "image": "mcr.microsoft.com/devcontainers/typescript-node:1-22-bookworm",
+  "postCreateCommand": "npm ci && npm install --global @openai/codex",
+  "forwardPorts": [5173],
+  "portsAttributes": {
+    "5173": {
+      "label": "Finance Tracker preview",
+      "onAutoForward": "notify"
+    }
+  },
+  "remoteUser": "node"
+}
