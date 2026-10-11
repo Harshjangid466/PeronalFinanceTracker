@@ -30,13 +30,13 @@ export function AlertInbox(){
   const canPost=!!editing&&!!editing.date&&realDate(editing.date)&&!!editing.amountMinor&&Number.isSafeInteger(editing.amountMinor)&&editing.amountMinor>0&&editing.kind==='payment'&&editing.direction!=='unknown'&&!!type&&((editing.direction==='credit')===['Income Misc','Lent Recovered'].includes(type));
   return <div className="space-y-4 text-sm">
     <p>Open Messages, copy a bank alert and paste it here. Separate multiple messages with a blank line. Alerts are references, not posted entries.</p>
-    <label className="block">Account these messages belong to<select aria-label="Alert account" className={inputStyle} value={source} onChange={e=>{setSource(e.target.value);clearSheetDraft();}}><option value="">Select account</option>{sources.filter(s=>s.active).map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select></label>
+    <label className="block">Account these messages belong to<select data-auto-save aria-label="Alert account" className={inputStyle} value={source} onChange={e=>setSource(e.target.value)}><option value="">Select account</option>{sources.filter(s=>s.active).map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select></label>
     <label className="block">Bank messages<textarea aria-label="Bank messages" className={inputStyle} rows={5} value={text} onChange={e=>{setText(e.target.value);guard.mark();}} placeholder="Paste transaction messages. Do not paste OTPs."/></label>
     <button className={buttonStyle} disabled={!text.trim()} onClick={capture}>Save alerts for review</button>
     {message&&<p role="status">{message}</p>}
     <p className="font-semibold">{alerts.length} alerts · {reviews.filter(r=>r.status==='Matched').length} matched · {unresolved.length} unresolved · {reviews.filter(r=>r.status==='Ignored').length} ignored</p>
     <p className="text-xs">{alerts.length>0&&!unresolved.length?'All captured alerts are accounted for.':'Review the unresolved alerts below.'} This does not mean your bank statement is reconciled. Missing messages and cash payments cannot be checked here.</p>
-    <label>Show<select aria-label="Alert filter" className={inputStyle} value={filter} onChange={e=>{setFilter(e.target.value);clearSheetDraft();}}>{['Unresolved','All','Matched','Ignored'].map(v=><option key={v}>{v}</option>)}</select></label>
+    <label>Show<select data-auto-save aria-label="Alert filter" className={inputStyle} value={filter} onChange={e=>setFilter(e.target.value)}>{['Unresolved','All','Matched','Ignored'].map(v=><option key={v}>{v}</option>)}</select></label>
     {reviews.filter(r=>filter==='All'?true:filter==='Unresolved'?!['Matched','Ignored'].includes(r.status):r.status===filter).slice().reverse().map(({alert,status,candidates,linked})=><article key={alert.id} className="border rounded-xl p-3 space-y-2">
       <p className="font-bold">{status} · {alert.amountMinor?formatCurrency(alert.amountMinor/100):'Amount needs review'}</p>
       <p>{sources.find(s=>s.id===alert.sourceId)?.name||alert.account} · {alert.date||'Date needs review'} · {alert.direction}</p>
