@@ -21,6 +21,7 @@ import { loadData, saveData, uid } from '@/data/storage';
 import { migrateData, projectMasters, financialEffect, dependencies, idFields, masterFields, patternKey, type MasterItem, type MasterKind } from '@/data/model';
 import { auditChanges } from '@/data/audit';
 import { mergeBackup } from '@/data/backup';
+import type {BankAlert} from '@/data/alerts';
 import {
   addDays,
   addMonths,
@@ -81,6 +82,8 @@ export interface SmallExpenseInsight {
 }
 
 interface AppContextValue {
+  saveBankAlerts: (alerts:BankAlert[])=>void;
+  updateBankAlert: (id:string, updates:Partial<BankAlert>)=>void;
   data: AppData;
   allData: AppData;
   deletedTransactions: Transaction[];
@@ -179,6 +182,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     });
   }
   function configure(updates:Partial<AppData>) { setData(prev=>({...prev,...updates})); }
+  function saveBankAlerts(alerts:BankAlert[]) {setData(prev=>({...prev,bankAlerts:[...(prev.bankAlerts||[]),...alerts]}));}
+  function updateBankAlert(id:string, updates:Partial<BankAlert>) {setData(prev=>({...prev,bankAlerts:(prev.bankAlerts||[]).map(a=>a.id===id?{...a,...updates,id:a.id,updatedAt:Date.now()}:a)}));}
   function logAction(action:string,entity:string,description:string) {
     setStoredData(prev=>({...prev,actionLog:[...prev.actionLog,{id:uid(),timestamp:Date.now(),actionType:action,entityType:entity,entityId:entity,description}]}));
   }
@@ -1068,6 +1073,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }
 
   const value: AppContextValue = {
+    saveBankAlerts,updateBankAlert,
     data, allData, deletedTransactions:allData.transactions.filter(t=>t.status==='deleted'),restoreTransaction,configure,logAction,manageMaster,removeMaster,importTransactions,
     addTransaction,
     updateTransaction,
