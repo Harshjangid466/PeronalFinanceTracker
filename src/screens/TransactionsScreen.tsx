@@ -8,10 +8,12 @@ import { Sheet } from '@/components/Sheet';
 import {searchableText} from '@/data/model';
 import {ExportReport,ImportExpenses} from '@/components/ReportTools';
 import { TransactionForm } from '@/components/TransactionForm';
+import {AlertInbox} from '@/components/AlertInbox';
 
 export function TransactionsScreen() {
   const { data, deleteTransaction, deletedTransactions, restoreTransaction } = useApp();
   const [showDeleted,setShowDeleted]=useState(false);
+  const [showAlerts,setShowAlerts]=useState(false);
   const [showExport,setShowExport]=useState(false);
   const [showImport,setShowImport]=useState(false);
   const [search, setSearch] = useState('');
@@ -181,6 +183,8 @@ export function TransactionsScreen() {
       )}
 
       <div className="flex flex-wrap gap-2 mb-3 text-xs"><button className="px-3 py-2 rounded-xl bg-cyan-600 text-white" onClick={()=>setShowImport(true)}>Upload expenses</button><button className="px-3 py-2 rounded-xl bg-slate-200 dark:bg-slate-700" onClick={()=>setShowDeleted(true)}>Deleted Transactions ({deletedTransactions.length})</button><button className="px-3 py-2 rounded-xl bg-slate-200 dark:bg-slate-700" onClick={()=>setShowExport(true)}>Reports / Export</button></div>
+      <button className="w-full mb-3 p-3 rounded-xl bg-cyan-600 text-white font-semibold" onClick={()=>setShowAlerts(true)}>Check bank messages / Alert inbox</button>
+      <Sheet open={showAlerts} onClose={()=>setShowAlerts(false)} title="Bank messages · Review before posting"><AlertInbox /></Sheet>
       <Sheet open={showExport} onClose={()=>setShowExport(false)} title="Reports & Export"><ExportReport /></Sheet>
       <Sheet open={showImport} onClose={()=>setShowImport(false)} title="Upload Expenses"><ImportExpenses /></Sheet>
       <Sheet open={showDeleted} onClose={()=>setShowDeleted(false)} title="Deleted Transactions">{deletedTransactions.length===0?<p>No deleted transactions.</p>:deletedTransactions.map(t=><div key={t.id} className="border p-3 rounded-xl mb-2 text-xs"><b>{t.heading||t.type} · {formatCurrency(t.amount)}</b><p>{t.date} · {t.type} · {t.majorCategory} · {t.person}</p><p>Deleted: {t.deletedAt?new Date(t.deletedAt).toLocaleString('en-IN'):'Unknown'}</p><button className="bg-cyan-600 text-white rounded-xl p-2 mt-2" onClick={()=>restoreTransaction(t.id)}>Restore</button></div>)}</Sheet>

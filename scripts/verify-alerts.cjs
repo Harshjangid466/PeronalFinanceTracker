@@ -1,0 +1,31 @@
+const fs=require('fs'),path=require('path'),vm=require('vm'),ts=require('typescript'),assert=require('assert/strict');
+const cache=new Map();
+function load(file){file=path.resolve(file);if(cache.has(file))return cache.get(file).exports;const mod={exports:{}};cache.set(file,mod);const code=ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;vm.runInNewContext(code,{module:mod,exports:mod.exports,require:p=>p.startsWith('.')?load(path.resolve(path.dirname(file),p+'.ts')):require(p),structuredClone,console,Date,Math});return mod.exports;}
+const {parseAlert,splitAlerts,reviewAlert,compatible,duplicateAlerts,validateAlerts}=load('src/data/alerts.ts');
+const {mergeBackup}=load('src/data/backup.ts');const {migrateData}=load('src/data/model.ts');const {getDefaultData}=load('src/data/defaults.ts');const mergeCloud=fs.existsSync('src/data/cloudMerge.ts')?load('src/data/cloudMerge.ts').mergeCloud:null;
+let passed=0;function test(name,fn){fn();passed++;console.log('PASS '+name);}
+const alert=(extra={})=>({id:'alert-one',rawText:'Rs.250.00 debited on 2026-10-12. Ref 123456789012',sourceId:'bank-one',account:'Pilot Bank',amountMinor:25000,date:'2026-10-12',direction:'debit',kind:'payment',createdAt:1,updatedAt:1,...extra});
+const txn=(extra={})=>({id:'txn-one',sourceId:'bank-one',account:'Pilot Bank',amountMinor:25000,amount:250,date:'2026-10-12',status:'active',type:'Revenue Expense',...extra});
+test('HDFC-style debit extracts paise, date and reference',()=>{const a=parseAlert('Rs.1,250.50 debited from a/c XX0000 on 12-10-26 to TEST MERCHANT. UPI Ref No 123456789012. Avl Bal INR 9,999.00');assert.equal(a.amountMinor,125050);assert.equal(a.date,'2026-10-12');assert.equal(a.reference,'123456789012');assert.equal(a.direction,'debit');});
+test('Credit is not silently classified as income',()=>assert.equal(parseAlert('INR 100 credited on 2026-10-12').direction,'credit'));
+test('Available balance is not used as transaction amount',()=>assert.equal(parseAlert('Avl Bal INR 9,000.00. INR 250 debited on 2026-10-12').amountMinor,25000));
+test('Missing and impossible dates remain unknown',()=>{assert.equal(parseAlert('INR 250 debited').date,undefined);assert.equal(parseAlert('INR 250 debited on 31-02-2026').date,undefined);});
+test('Missing amount and overprecision are not guessed',()=>{assert.equal(parseAlert('Account debited').amountMinor,undefined);assert.equal(parseAlert('INR 100.123 debited').amountMinor,undefined);});
+test('OTP is rejected without preserving it',()=>assert.throws(()=>parseAlert('OTP 000000 for INR 500 purchase')));
+test('Failed, refund and own transfer need review',()=>{for(const text of ['INR 250 payment failed','INR 250 refund credited','INR 250 self transfer debited'])assert.notEqual(parseAlert(text).kind,'payment');});
+test('Batch paste separates blank lines, retains multiline message',()=>assert.equal(splitAlerts('first\ncontinued\n\nsecond').length,2));
+test('Equal amount on another account is not a match',()=>assert.equal(compatible(alert(),txn({sourceId:'bank-two'})),false));
+test('Credit/debit mismatch is not a match',()=>assert.equal(compatible(alert(),txn({type:'Income Misc'})),false));
+test('Date window includes three days but excludes four',()=>{assert.equal(compatible(alert(),txn({date:'2026-10-15'})),true);assert.equal(compatible(alert(),txn({date:'2026-10-16'})),false);});
+test('Possible candidate requires confirmation; no automatic link',()=>{const a=alert();assert.equal(reviewAlert(a,[txn()]).status,'Needs review');assert.equal(a.linkedTransactionId,undefined);});
+test('No candidate is possible missing, not proof of a missing payment',()=>assert.equal(reviewAlert(alert(),[]).status,'Possible missing entry'));
+test('Confirmed match is retained by stable ID',()=>assert.equal(reviewAlert(alert({linkedTransactionId:'txn-one'}),[txn()]).status,'Matched'));
+test('Edit, deletion and missing linked entry reopen review',()=>{for(const rows of [[txn({amountMinor:26000})],[txn({status:'deleted'})],[]])assert.equal(reviewAlert(alert({linkedTransactionId:'txn-one'}),rows).status,'Needs review');});
+test('Restore resolves the original linked entry',()=>assert.equal(reviewAlert(alert({linkedTransactionId:'txn-one'}),[txn({status:'active'})]).status,'Matched'));
+test('Ignore records a reason; reopen is supported',()=>{assert.equal(reviewAlert(alert({ignoredReason:'Failed payment'}),[]).status,'Ignored');assert.notEqual(reviewAlert(alert({ignoredReason:undefined}),[]).status,'Ignored');});
+test('Similar alerts are flagged, not silently discarded',()=>{const a=alert(),b=alert({id:'alert-two'});assert.equal(duplicateAlerts(a,[a,b]).length,1);assert.equal([a,b].length,2);});
+test('Malformed alert backup is rejected',()=>{assert.throws(()=>validateAlerts([alert({amountMinor:1.5})]));assert.throws(()=>validateAlerts([alert(),alert()]));});
+test('Old data migration adds an empty inbox and preserves transactions',()=>{const original=getDefaultData();delete original.bankAlerts;const before=JSON.stringify(original.transactions);const upgraded=migrateData(original);assert.equal(upgraded.bankAlerts.length,0);assert.equal(JSON.stringify(original.transactions),before);});
+test('Backup and repeated restore preserve alerts without duplicates',()=>{const original=migrateData(getDefaultData()),incoming=structuredClone(original);incoming.bankAlerts=[alert()];const merged=mergeBackup(original,JSON.stringify({backupFormatVersion:4,data:incoming}));assert.equal(merged.bankAlerts.length,1);assert.equal(mergeBackup(merged,JSON.stringify({data:incoming})).bankAlerts.length,1);});
+if(mergeCloud)test('Separate devices preserve concurrent alert additions',()=>{const base=migrateData(getDefaultData()),left=structuredClone(base),right=structuredClone(base);left.bankAlerts=[alert()];right.bankAlerts=[alert({id:'alert-two'})];const merged=mergeCloud(base,left,right);assert.equal(merged.conflicts.length,0);assert.equal(merged.snapshot.bankAlerts.length,2);});
+console.log(`${passed} alert-review checks passed.`);

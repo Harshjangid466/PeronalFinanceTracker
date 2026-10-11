@@ -1,5 +1,6 @@
 import {financialEffect} from './model';
 import type { MasterItem } from './model';
+import type { BankAlert } from './alerts';
 
 export type TransactionType =
   | 'Revenue Expense'
@@ -288,6 +289,7 @@ export interface DependencyCheckResult {
 }
 
 export interface AppData {
+  bankAlerts?: BankAlert[];
   schemaVersion: number;
   transactions: Transaction[];
   receivables: Receivable[];
