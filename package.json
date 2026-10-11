@@ -9,7 +9,8 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.app.json",
-    "test:sync": "node scripts/verify-cloud.cjs"
+    "test:sync": "node scripts/verify-cloud.cjs",
+    "test:alerts": "node scripts/verify-alerts.cjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.4",

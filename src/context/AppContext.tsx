@@ -22,6 +22,7 @@ import { migrateData, projectMasters, stableId, financialEffect, dependencies, i
 import {useCloudSync, type CloudSync} from './useCloudSync';
 import { auditChanges } from '@/data/audit';
 import { mergeBackup } from '@/data/backup';
+import type {BankAlert} from '@/data/alerts';
 import {
   addDays,
   addMonths,
@@ -82,6 +83,8 @@ export interface SmallExpenseInsight {
 }
 
 interface AppContextValue {
+  saveBankAlerts: (alerts:BankAlert[])=>void;
+  updateBankAlert: (id:string, updates:Partial<BankAlert>)=>void;
   cloudSync:CloudSync;
   data: AppData;
   allData: AppData;
@@ -182,6 +185,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     });
   }
   function configure(updates:Partial<AppData>) { setData(prev=>({...prev,...updates})); }
+  function saveBankAlerts(alerts:BankAlert[]) {setData(prev=>({...prev,bankAlerts:[...(prev.bankAlerts||[]),...alerts]}));}
+  function updateBankAlert(id:string, updates:Partial<BankAlert>) {setData(prev=>({...prev,bankAlerts:(prev.bankAlerts||[]).map(a=>a.id===id?{...a,...updates,id:a.id,updatedAt:Date.now()}:a)}));}
   function logAction(action:string,entity:string,description:string) {
     setStoredData(prev=>({...prev,actionLog:[...prev.actionLog,{id:uid(),timestamp:Date.now(),actionType:action,entityType:entity,entityId:entity,description}]}));
   }
@@ -1071,6 +1076,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }
 
   const value: AppContextValue = {
+    saveBankAlerts,updateBankAlert,
     cloudSync,
     data, allData, deletedTransactions:allData.transactions.filter(t=>t.status==='deleted'),restoreTransaction,configure,logAction,manageMaster,removeMaster,importTransactions,
     addTransaction,
