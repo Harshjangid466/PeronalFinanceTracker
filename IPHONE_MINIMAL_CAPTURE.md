@@ -1,3 +1,7 @@
+# Capture is currently SWITCHED OFF
+
+User requested disabling it on 13 October 2026. Cloud capture access is revoked and app capture defaults off. Instructions below are retained for a possible future decision; do not set up a phone connection now.
+
 # iPhone minimal bank capture — setup and test
 
 Status: receiver activated and live security checks passed; iPhone connection and physical locked-phone test pending. This file is an action-by-action recipe, not an importable signed Shortcut. The final bank-specific amount pattern must be checked against a redacted sample before enabling it for real messages.
