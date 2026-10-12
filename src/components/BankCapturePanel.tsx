@@ -6,7 +6,7 @@ export function BankCapturePanel(){
   const {bankCapture:c,allData}=useApp();const [email,setEmail]=useState('');const [loginLink,setLoginLink]=useState('');const [message,setMessage]=useState('');const [busy,setBusy]=useState(false);const [consent,setConsent]=useState(false);
   const sources=alertSources(allData).filter(s=>s.active);const [source,setSource]=useState(sources.find(s=>s.name==='HDFC Savings A/c')?.id||'');
   async function run(action:()=>Promise<unknown>,done:string){setBusy(true);setMessage('');try{await action();setMessage(done);}catch(e){setMessage(e instanceof Error?e.message:'Please try again.');}finally{setBusy(false);}}
-  if(!c.configured)return <p>Automatic bank-message capture setup is pending.</p>;
+  if(!c.configured)return <p>Automatic message capture is switched off. The setup is saved for future use. Manual entry and alert review remain available.</p>;
   return <details className="border rounded-xl p-3 space-y-3" data-auto-save><summary className="font-semibold cursor-pointer">Connect iPhone automatic bank alerts</summary>
     <p className="mt-3">Apple Shortcuts can extract amounts and debit/credit locally from selected future bank messages and send only minimal summaries to your private online alert inbox. No notification banner or open tracker is required for submission. Locked-phone operation still needs a test on your iPhone.</p>
     <p className="text-xs">This connects bank alerts only. Your existing financial records remain on this device; full transaction synchronization is separate.</p>

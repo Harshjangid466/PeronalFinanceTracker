@@ -1,3 +1,11 @@
+# Current status: DISABLED by user request (13 October 2026)
+
+All five capture RPCs have had PUBLIC/anon/authenticated execution permissions revoked. Live permission checks confirmed uploads, new phone connections and downloads disabled. Tables, functions, existing records, extraction rules and instructions are retained; no financial transaction data was deleted or changed.
+
+The app now defaults VITE_BANK_CAPTURE_ENABLED to off and does not initialise capture authentication while off. For a future decision: obtain fresh approval, review retained keys and security tests, manually run supabase/manual/reenable_bank_capture.sql, then explicitly set VITE_BANK_CAPTURE_ENABLED=true for the production build and redeploy. Neither step alone enables the complete feature. Do not rerun the original activation migration as an accidental workaround. Physical-iPhone execution remains unverified.
+
+Historical implementation and validation notes follow.
+
 # Automatic minimal bank-alert capture
 
 Status: minimal-data receiver activated and live synthetic security checks passed with rollback. App release/sign-in and physical-iPhone checks pending. Do not claim phone automatic pickup verified.
