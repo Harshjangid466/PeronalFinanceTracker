@@ -1,5 +1,5 @@
 import {useEffect,useRef,useState} from 'react';
-import {captureAuth,captureConfigured,captureRpc,captureEndpoint,capturePublicKey} from '@/data/captureClient';
+import {captureAuth,captureConfigured,captureRpc,captureEndpoint,capturePublicKey,verifyCaptureLink} from '@/data/captureClient';
 import {captureRows,captureToken,capturePersisted,captureCheckpoint,type CaptureRow} from '@/data/captureProtocol';
 import type {BankAlert} from '@/data/alerts';
 export interface CaptureDevice {id:string;source_id:string;source_label:string;name:string;expires_at:string;revoked_at?:string|null}
@@ -39,6 +39,7 @@ export function useBankCapture(add:(alerts:BankAlert[])=>void){
   useEffect(()=>{if(!connected)return;void tickRef.current();const tick=()=>void tickRef.current();const timer=setInterval(tick,30000);window.addEventListener('focus',tick);window.addEventListener('online',tick);return()=>{clearInterval(timer);window.removeEventListener('focus',tick);window.removeEventListener('online',tick);};},[connected,user?.id]);
   return {configured:captureConfigured,email:user?.email||'',connected,status,error,devices,connection,lastReceived,differentAccount,endpoint:captureEndpoint,publicKey:capturePublicKey,
     async signIn(email:string){if(!captureAuth)throw new Error('Automatic capture setup is not available yet.');const {error}=await captureAuth.auth.signInWithOtp({email:email.trim(),options:{emailRedirectTo:window.location.origin+'/'}});if(error)throw error;},
+    verifyLink:verifyCaptureLink,
     async verifyCode(email:string,token:string){if(!captureAuth)throw new Error('Automatic capture setup is not available yet.');if(!/^\d{6}$/.test(token.trim()))throw new Error('Enter the six-digit code from your email.');const {error}=await captureAuth.auth.verifyOtp({email:email.trim(),token:token.trim(),type:'email'});if(error)throw error;},
     async connect(){const u=userRef.current;if(!u)return;if(!belongs(u.id))throw new Error('This browser contains another account’s data. Use that account or a separate browser profile.');const generation=epoch.current;await refreshDevices();if(generation!==epoch.current)return;localStorage.setItem(ownerKey,u.id);setConnected(true);setStatus('Connected · checking for bank alerts');},
     async pair(sourceId:string,label:string){const u=userRef.current;if(!u||!belongs(u.id)||localStorage.getItem(ownerKey)!==u.id)throw new Error('Connect this browser first.');const generation=epoch.current;

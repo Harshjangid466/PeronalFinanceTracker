@@ -1,6 +1,6 @@
 # iPhone minimal bank capture — setup and test
 
-Status: code prepared; receiver activation and physical iPhone test pending. This file is an action-by-action recipe, not an importable signed Shortcut. The final bank-specific amount pattern must be checked against a redacted sample before enabling it for real messages.
+Status: receiver activated and live security checks passed; iPhone connection and physical locked-phone test pending. This file is an action-by-action recipe, not an importable signed Shortcut. The final bank-specific amount pattern must be checked against a redacted sample before enabling it for real messages.
 
 ## What starts it
 
@@ -72,3 +72,5 @@ Use this bank-specific section instead of generic actions 4–7. Test fixtures a
   Get groups 1 = Day, 2 = Month, 3 = Year. If Year has two characters, prefix 20. Build Text: Year-Month-Day using these variables (example 2026-10-11). Set BankDate. The server rejects impossible dates; no arrival-date substitution.
 - Keep security/complex-message rejection from actions 1–3 and network actions 8–11. Do not extract/send To, Ref, account suffix, phone number or the original text.
 - For the real automation, select the actual sender or use Message Contains: From HDFC Bank A/C. The latter also triggers other HDFC messages; local format checks restrict which are uploaded. Multiple HDFC accounts require the local suffix filter above. The trigger listens to arrival, not notification banners.
+
+Sign-in on the installed tracker: request the sign-in email, long-press its Sign in link to copy it without opening, paste privately into the tracker’s masked field, and tap Sign in on this device. Never share the link or phone key in chat. No custom SMTP or paid plan was configured.
