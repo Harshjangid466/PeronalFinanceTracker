@@ -1,0 +1,64 @@
+-- Run only in the intended Supabase project after the migration.
+-- Aborts if auth-user hooks could cause external effects. All fixtures roll back.
+begin;
+do $$
+declare a uuid := '11111111-1111-4111-8111-111111111111'; b uuid := '22222222-2222-4222-8222-222222222222';
+  token text := 'cap_'||repeat('0',64); did uuid; denied boolean; result jsonb; captured timestamptz := now();
+begin
+  if exists(select 1 from pg_trigger where tgrelid='auth.users'::regclass and not tgisinternal and tgenabled<>'D') then
+    raise exception 'Test requires an isolated auth environment: user hooks detected';
+  end if;
+  if exists(select 1 from auth.users where id in (a,b)) then raise exception 'Fixture IDs already exist; no changes made'; end if;
+  insert into auth.users(id,aud,role,email) values(a,'authenticated','authenticated','capture-test-a@example.invalid'),(b,'authenticated','authenticated','capture-test-b@example.invalid');
+  if has_table_privilege('anon','public.bank_capture_messages','SELECT') or has_table_privilege('authenticated','public.bank_capture_devices','SELECT') then raise exception 'Unexpected direct table access'; end if;
+  if not (select relrowsecurity from pg_class where oid='public.bank_capture_messages'::regclass) then raise exception 'RLS missing'; end if;
+  perform set_config('request.jwt.claim.sub',a::text,true);
+  execute 'set local role authenticated';
+  select id into did from public.pair_bank_capture_device(token,'source_synthetic_a','Test bank A','Synthetic phone');
+  if (select count(*) from public.list_bank_capture_devices())<>1 then raise exception 'Owner cannot list own device'; end if;
+  execute 'reset role';
+  perform set_config('request.jwt.claim.sub','',true);perform set_config('request.jwt.claims','{}',true);
+  execute 'set local role anon';
+  denied:=false;begin perform public.read_bank_captures(0);exception when insufficient_privilege then denied:=true;end;
+  if not denied then raise exception 'Anonymous read allowed'; end if;
+  denied:=false;begin perform public.pair_bank_capture_device(token,'source_x','Test','Test');exception when insufficient_privilege then denied:=true;end;
+  if not denied then raise exception 'Anonymous pairing allowed'; end if;
+  result:=public.ingest_bank_capture(token,'synthetic-delivery','INR 250 debited on 12-10-26',captured,1);
+  if result->>'accepted'<>'true' then raise exception 'Valid submission failed'; end if;
+  result:=public.ingest_bank_capture(token,'synthetic-delivery','INR 250 debited on 12-10-26',captured,1);
+  if result->>'accepted'<>'true' then raise exception 'Identical retry failed'; end if;
+  denied:=false;begin perform public.ingest_bank_capture(token,'synthetic-delivery','INR 260 debited',captured,1);exception when raise_exception then if sqlerrm='Capture ID was already used for another message' then denied:=true;else raise;end if;end;
+  if not denied then raise exception 'Conflicting retry accepted'; end if;
+  result:=public.ingest_bank_capture(token,'security-text','OTP 000000 for INR 250 purchase',captured,1);
+  if result->>'accepted'<>'false' then raise exception 'OTP was retained'; end if;
+  denied:=false;begin perform public.ingest_bank_capture('cap_'||repeat('1',64),'invalid-key','INR 250 debited',captured,1);exception when raise_exception then if sqlerrm='Capture key is invalid or expired' then denied:=true;else raise;end if;end;
+  if not denied then raise exception 'Unknown key accepted'; end if;
+  execute 'reset role';
+  if (select count(*) from public.bank_capture_messages where user_id=a)<>1 then raise exception 'Retry/OTP produced extra rows'; end if;
+  if (select source_id from public.bank_capture_messages where user_id=a)<>'source_synthetic_a' then raise exception 'Source binding failed'; end if;
+  if (select token_hash from public.bank_capture_devices where id=did)=token then raise exception 'Plaintext key stored'; end if;
+  perform set_config('request.jwt.claim.sub',b::text,true);execute 'set local role authenticated';
+  if exists(select 1 from public.read_bank_captures(0)) or exists(select 1 from public.list_bank_capture_devices()) then raise exception 'Cross-user read allowed'; end if;
+  perform public.revoke_bank_capture_device(did);
+  execute 'reset role';
+  if (select revoked_at from public.bank_capture_devices where id=did) is not null then raise exception 'Cross-user revocation allowed'; end if;
+  perform set_config('request.jwt.claim.sub',a::text,true);execute 'set local role authenticated';
+  if (select count(*) from public.read_bank_captures(0))<>1 then raise exception 'Owner read failed'; end if;
+  perform public.revoke_bank_capture_device(did);execute 'reset role';
+  perform set_config('request.jwt.claim.sub','',true);execute 'set local role anon';
+  denied:=false;begin perform public.ingest_bank_capture(token,'revoked','INR 250 debited',captured,1);exception when raise_exception then if sqlerrm='Capture key is invalid or expired' then denied:=true;else raise;end if;end;
+  if not denied then raise exception 'Revoked key accepted'; end if;
+  execute 'reset role';update public.bank_capture_devices set revoked_at=null,expires_at=now()-interval '1 minute' where id=did;
+  execute 'set local role anon';
+  denied:=false;begin perform public.ingest_bank_capture(token,'expired','INR 250 debited',captured,1);exception when raise_exception then if sqlerrm='Capture key is invalid or expired' then denied:=true;else raise;end if;end;
+  if not denied then raise exception 'Expired key accepted'; end if;
+  execute 'reset role';update public.bank_capture_devices set expires_at=now()+interval '1 day',quota_day=current_date,quota_used=500 where id=did;
+  execute 'set local role anon';
+  denied:=false;begin perform public.ingest_bank_capture(token,'over-quota','INR 250 debited',captured,1);exception when raise_exception then if sqlerrm='Daily capture limit reached' then denied:=true;else raise;end if;end;
+  if not denied then raise exception 'Quota bypass allowed'; end if;
+  result:=public.ingest_bank_capture(token,'synthetic-delivery','INR 250 debited on 12-10-26',captured,1);
+  if result->>'accepted'<>'true' then raise exception 'Idempotent retry consumed quota'; end if;
+  execute 'reset role';
+end $$;
+rollback;
+select 'Bank capture security checks passed; all fixtures rolled back' as result;
