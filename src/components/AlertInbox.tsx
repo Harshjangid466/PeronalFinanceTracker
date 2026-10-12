@@ -8,6 +8,7 @@ import {inputStyle,buttonStyle} from './ConfigurationTools';
 import {TransactionForm} from './TransactionForm';
 import {Sheet} from './Sheet';
 import {useDraftGuard,clearSheetDraft} from './NavigationGuard';
+import {BankCapturePanel} from './BankCapturePanel';
 
 export function AlertInbox(){
   const {allData,saveBankAlerts,updateBankAlert,restoreTransaction}=useApp();const guard=useDraftGuard();
@@ -29,6 +30,7 @@ export function AlertInbox(){
   }
   const canPost=!!editing&&!!editing.date&&realDate(editing.date)&&!!editing.amountMinor&&Number.isSafeInteger(editing.amountMinor)&&editing.amountMinor>0&&editing.kind==='payment'&&editing.direction!=='unknown'&&!!type&&((editing.direction==='credit')===['Income Misc','Lent Recovered'].includes(type));
   return <div className="space-y-4 text-sm">
+    <BankCapturePanel />
     <p>Open Messages, copy a bank alert and paste it here. Separate multiple messages with a blank line. Alerts are references, not posted entries.</p>
     <label className="block">Account these messages belong to<select data-auto-save aria-label="Alert account" className={inputStyle} value={source} onChange={e=>setSource(e.target.value)}><option value="">Select account</option>{sources.filter(s=>s.active).map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select></label>
     <label className="block">Bank messages<textarea aria-label="Bank messages" className={inputStyle} rows={5} value={text} onChange={e=>{setText(e.target.value);guard.mark();}} placeholder="Paste transaction messages. Do not paste OTPs."/></label>

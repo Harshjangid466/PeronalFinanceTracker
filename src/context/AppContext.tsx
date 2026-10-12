@@ -22,6 +22,8 @@ import { migrateData, projectMasters, financialEffect, dependencies, idFields, m
 import { auditChanges } from '@/data/audit';
 import { mergeBackup } from '@/data/backup';
 import type {BankAlert} from '@/data/alerts';
+import {mergeCaptured} from '@/data/captureProtocol';
+import {useBankCapture,type BankCapture} from './useBankCapture';
 import {
   addDays,
   addMonths,
@@ -82,6 +84,7 @@ export interface SmallExpenseInsight {
 }
 
 interface AppContextValue {
+  bankCapture:BankCapture;
   saveBankAlerts: (alerts:BankAlert[])=>void;
   updateBankAlert: (id:string, updates:Partial<BankAlert>)=>void;
   data: AppData;
@@ -174,6 +177,7 @@ export function useApp(): AppContextValue {
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [allData, setStoredData] = useState<AppData>(() => loadData());
+  const bankCapture=useBankCapture(alerts=>setStoredData(prev=>auditChanges(prev,migrateData({...prev,bankAlerts:mergeCaptured(prev.bankAlerts||[],alerts)}))));
   const data = useMemo(()=>({...allData,transactions:allData.transactions.filter(t=>t.status==='active')}),[allData]);
   function setData(update: AppData | ((prev:AppData)=>AppData)) {
     setStoredData(prev=>{
@@ -1073,6 +1077,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }
 
   const value: AppContextValue = {
+    bankCapture,
     saveBankAlerts,updateBankAlert,
     data, allData, deletedTransactions:allData.transactions.filter(t=>t.status==='deleted'),restoreTransaction,configure,logAction,manageMaster,removeMaster,importTransactions,
     addTransaction,

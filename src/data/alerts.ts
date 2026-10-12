@@ -10,7 +10,7 @@ export function realDate(value:string):boolean {
   return /^\d{4}-\d{2}-\d{2}$/.test(value)&&!Number.isNaN(Date.parse(value))&&new Date(value).toISOString().slice(0,10)===value;
 }
 export function parseAlert(rawText:string):Partial<BankAlert> {
-  if(/\bOTP\b|one[ -]time password|verification code/i.test(rawText))throw new Error('OTP/security messages are not transaction alerts. They have not been saved.');
+  if(/\bOTP\b|\bPIN\b|one[ -]time|passcode|password|verification|authentication|ओटीपी/i.test(rawText))throw new Error('OTP/security messages are not transaction alerts. They have not been saved.');
   const amounts=[...rawText.matchAll(/(?:INR|Rs\.?|₹)\s*([\d,]+(?:\.\d+)?)(?!\d)/gi)];
   const money=amounts.find(m=>!/(?:balance|bal|limit)\s*[:=]?\s*$/i.test(rawText.slice(0,m.index)));
   const amount=money&&/^[\d,]+(?:\.\d{1,2})?$/.test(money[1])?Number(money[1].replace(/,/g,'')):undefined;
