@@ -7,9 +7,10 @@ interface SheetProps {
   onClose: () => void;
   title: string;
   children: React.ReactNode;
+  wide?:boolean;
 }
 
-export function Sheet({ open, onClose, title, children }: SheetProps) {
+export function Sheet({ open, onClose, title, children,wide=false }: SheetProps) {
   const [visible, setVisible] = useState(open);
   const id=useRef('sheet_'+Math.random().toString(36).slice(2));
   const closeRef=useRef(onClose);closeRef.current=onClose;
@@ -42,7 +43,7 @@ export function Sheet({ open, onClose, title, children }: SheetProps) {
         onClick={requestClose}
       />
       <div
-        className={`relative w-full sm:max-w-md bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl shadow-2xl transition-transform duration-200 ${
+        className={`relative w-full ${wide?'sm:max-w-6xl':'sm:max-w-md'} bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl shadow-2xl transition-transform duration-200 ${
           open ? 'translate-y-0' : 'translate-y-full sm:translate-y-0 sm:scale-95'
         } max-h-[90vh] flex flex-col`}
       >

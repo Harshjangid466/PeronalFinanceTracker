@@ -139,7 +139,9 @@ export function loadData(): AppData {
 
 export function saveData(data: AppData): void {
   try {
-    const serialized = JSON.stringify(data);
+    // Large imported history lives in IndexedDB. Backups still include it from AppContext.
+    const {statementRows: _rows,statementBatches: _batches,...ledger}=data;
+    const serialized = JSON.stringify(ledger);
     localStorage.setItem(STORAGE_KEY_V2, serialized);
     // Also keep backward-compatible sync
     localStorage.setItem(STORAGE_KEY_V1, serialized);

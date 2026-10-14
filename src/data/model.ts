@@ -1,5 +1,6 @@
 import type { AppData, Transaction, RuleDefinition, CustomFieldDefinition } from './types';
 import {validateAlerts} from './alerts';
+import {validateStatementRows,validateHabits,validateStatementBatches} from './statements';
 
 export type MasterKind = 'source' | 'paymentMode' | 'category' | 'subCategory' | 'person' | 'merchant' | 'purpose' | 'incomeType' | 'investmentType' | 'dropdownOption';
 export interface MasterItem { id: string; kind: MasterKind; name: string; active: boolean; order: number; parentId?: string; updatedAt: number }
@@ -22,6 +23,10 @@ export const idFields: Record<string,string> = {account:'sourceId',paymentMode:'
 export const listFields: Record<string, MasterKind> = {accounts:'source',paymentModes:'paymentMode',people:'person',capexPurchasedFrom:'merchant',toGharPaymentFor:'purpose',incomeTypes:'incomeType',investmentTypes:'investmentType'};
 export function migrateData(input: AppData): AppData {
   const data = structuredClone(input);
+  if(data.monthlyIncomeMinor&&(typeof data.monthlyIncomeMinor!=='object'||Array.isArray(data.monthlyIncomeMinor)||Object.entries(data.monthlyIncomeMinor).some(([month,value])=>!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)||!Number.isSafeInteger(value)||value<0)))throw Error('Invalid monthly income figures');
+  data.statementRows ||= []; data.statementBatches ||= []; validateStatementRows(data.statementRows);
+  validateStatementBatches(data.statementBatches);
+  if(data.importHabits)validateHabits(data.importHabits);
   data.bankAlerts ||= []; validateAlerts(data.bankAlerts);
   const upgrading = data.schemaVersion < 4 || !data.masters;
   data.masters ||= []; data.sourceMappings ||= {}; data.suppressedPatterns ||= [];

@@ -18,7 +18,10 @@ import {
   normalizeTransactionType,
 } from '@/data/types';
 import { loadData, saveData, uid } from '@/data/storage';
-import { migrateData, projectMasters, financialEffect, dependencies, idFields, masterFields, patternKey, type MasterItem, type MasterKind } from '@/data/model';
+import {loadStatementArchive,saveStatementArchive} from '@/data/statementStore';
+import {classifyImport,mergeStatementRows,rowState,batchUndoCandidates,type StatementRow,type StatementBatch} from '@/data/statements';
+import {defaultImportHabits} from '@/data/approvedHabits';
+import { migrateData, projectMasters, financialEffect, dependencies, idFields, masterFields, patternKey, visibleField, type MasterItem, type MasterKind } from '@/data/model';
 import { auditChanges } from '@/data/audit';
 import { mergeBackup } from '@/data/backup';
 import type {BankAlert} from '@/data/alerts';
@@ -84,6 +87,11 @@ export interface SmallExpenseInsight {
 }
 
 interface AppContextValue {
+  statementReady:boolean;
+  statementError:string;
+  importStatement:(rows:StatementRow[],batch:StatementBatch)=>void;
+  reviewStatement:(id:string,action:'ignore'|'reopen'|'match'|'post',details?:Partial<Transaction>,reason?:string)=>void;
+  undoStatementBatch:(id:string)=>void;
   bankCapture:BankCapture;
   saveBankAlerts: (alerts:BankAlert[])=>void;
   updateBankAlert: (id:string, updates:Partial<BankAlert>)=>void;
@@ -177,6 +185,9 @@ export function useApp(): AppContextValue {
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [allData, setStoredData] = useState<AppData>(() => loadData());
+  const [statementReady,setStatementReady]=useState(false);
+  const [statementError,setStatementError]=useState('');
+  useEffect(()=>{let cancelled=false;loadStatementArchive().then(archive=>{if(cancelled)return;setStoredData(prev=>({...prev,statementRows:mergeStatementRows(archive.rows,prev.statementRows||[]),statementBatches:[...new Map([...archive.batches,...(prev.statementBatches||[])].map(b=>[b.id,b])).values()]}));setStatementReady(true);}).catch(()=>{if(!cancelled)setStatementError('Statement history could not be opened. Import is disabled; existing financial entries are retained.');});return()=>{cancelled=true;};},[]);
   const bankCapture=useBankCapture(alerts=>setStoredData(prev=>auditChanges(prev,migrateData({...prev,bankAlerts:mergeCaptured(prev.bankAlerts||[],alerts)}))));
   const data = useMemo(()=>({...allData,transactions:allData.transactions.filter(t=>t.status==='active')}),[allData]);
   function setData(update: AppData | ((prev:AppData)=>AppData)) {
@@ -186,6 +197,77 @@ export function AppProvider({ children }: { children: ReactNode }) {
     });
   }
   function configure(updates:Partial<AppData>) { setData(prev=>({...prev,...updates})); }
+  function statementTransaction(row:StatementRow,details:Partial<Transaction>):Transaction{
+    const type=details.type||'Revenue Expense',now=Date.now();
+    return {id:uid(),schemaVersion:4,type,amount:row.amountMinor/100,amountMinor:row.amountMinor,currency:'INR',date:row.date,createdAt:now,updatedAt:now,majorCategory:details.majorCategory||'',subCategory:details.subCategory||'',paymentMode:details.paymentMode||'UPI',account:row.account,person:details.person||'',heading:details.heading||row.vendor,remarks:details.remarks??row.note,customFields:details.customFields||{},financialEffect:financialEffect(type,row.amountMinor),status:'active',purchasedFrom:details.purchasedFrom||'',paymentFor:details.paymentFor||'',incomeType:details.incomeType||'',investmentType:details.investmentType||'',statementReferences:row.reference?[row.reference]:[]};
+  }
+  function undoStatementBatch(id:string){setData(prev=>{const batch=prev.statementBatches?.find(b=>b.id===id);if(!batch)return prev;const ids=new Set(batchUndoCandidates(batch,prev.statementRows||[],prev.transactions));return {...prev,transactions:prev.transactions.map(t=>ids.has(t.id)?{...t,status:'deleted',deletedAt:Date.now(),updatedAt:Date.now()}:t),actionLog:[...prev.actionLog,{id:uid(),timestamp:Date.now(),actionType:'undo',entityType:'statement',entityId:id,description:`Undid ${ids.size} untouched auto-posted entries; retained import review history`}]};});}
+  function ensureStatementCategory(prev:AppData,t:Transaction){
+    if(!t.majorCategory)return prev.categories;
+    const found=prev.categories.find(c=>c.name===t.majorCategory);
+    return found?prev.categories.map(c=>c.name===t.majorCategory&&t.subCategory&&!c.subCategories.includes(t.subCategory)?{...c,subCategories:[...c.subCategories,t.subCategory]}:c):[...prev.categories,{name:t.majorCategory,subCategories:t.subCategory?[t.subCategory]:[]}];
+  }
+  function importStatement(rows:StatementRow[],batch:StatementBatch){
+    if(!statementReady)throw Error('Statement history is not ready.');
+    mergeStatementRows(allData.statementRows||[],rows);
+    setData(prev=>{
+      const habits=prev.importHabits||defaultImportHabits();
+      const preview=classifyImport(rows,prev,habits);let next=prev;
+      const imported=preview.filter(p=>!p.existing).map(p=>{
+        if(p.exactReference&&p.matches.length===1)return {...p.row,status:'matched' as const,transactionId:p.matches[0].id,reason:'Exact account, reference, date and amount match'};
+        if(p.classification.action==='ignore'&&p.row.source==='paytm')return {...p.row,status:'ignored' as const,reason:p.classification.reason};
+        const requiresCustom=prev.customFields.some(f=>f.enabled&&f.required&&(!f.applicableTypes.length||f.applicableTypes.includes(p.classification.type)));
+        const deactivated=!prev.paymentModes.includes('UPI')||prev.masters?.some(m=>!m.active&&((m.kind==='source'&&m.name===p.row.account)||(m.kind==='category'&&m.name===p.classification.category)||(m.kind==='paymentMode'&&m.name==='UPI')));
+        if(p.classification.action==='post'&&p.classification.type==='Revenue Expense'&&p.row.source==='paytm'&&prev.accounts.includes(p.row.account)&&p.classification.category&&!requiresCustom&&!deactivated){
+          const t=statementTransaction(p.row,{type:p.classification.type,majorCategory:p.classification.category,subCategory:p.classification.subcategory});
+          next={...next,transactions:[t,...next.transactions],categories:ensureStatementCategory(next,t)};
+          return {...p.row,status:'posted' as const,transactionId:t.id,reason:p.classification.reason};
+        }
+        return {...p.row,reason:requiresCustom?'Required custom fields need review':p.classification.reason};
+      });
+      const batches=prev.statementBatches||[];
+      return {...next,importHabits:habits,statementRows:mergeStatementRows(prev.statementRows||[],imported),statementBatches:batches.some(b=>b.id===batch.id)?batches:[batch,...batches],actionLog:[...next.actionLog,{id:uid(),timestamp:Date.now(),actionType:'import',entityType:'statement',entityId:batch.id,description:`Imported ${batch.source} statement: ${imported.length} new rows`}]};
+    });
+  }
+  function reviewStatement(id:string,action:'ignore'|'reopen'|'match'|'post',details:Partial<Transaction>={},reason=''){
+    const savedRow=allData.statementRows?.find(r=>r.id===id);if(!savedRow)throw Error('Statement row not found.');
+    const current={...savedRow,account:details.account||savedRow.account};
+    if(action==='ignore'&&!reason.trim())throw Error('Enter a reason for ignoring this row.');
+    if(action==='post'){
+      if(rowState(current,allData.transactions).status!=='pending')throw Error('This row is already settled.');
+      if(allData.transactions.some(t=>t.status==='active'&&current.reference&&t.statementReferences?.includes(current.reference)&&t.account===current.account))throw Error('An entry with this payment reference already exists. Edit or match that entry.');
+      if(!details.type||!allData.accounts.includes(current.account))throw Error('Select a transaction type and valid account.');
+      if(!details.paymentMode||!allData.paymentModes.includes(details.paymentMode))throw Error('Select a payment mode.');
+      if(allData.masters?.some(m=>!m.active&&((m.kind==='source'&&m.name===current.account)||(m.kind==='paymentMode'&&m.name===details.paymentMode)||(m.kind==='category'&&m.name===details.majorCategory)||(m.kind==='person'&&m.name===details.person))))throw Error('Choose active account, payment mode, category and person values.');
+      if(['Lent','Lent Recovered'].includes(details.type)&&!details.person)throw Error('Select the person for this entry.');
+      if(['Revenue Expense','CAPEX'].includes(details.type)&&!details.majorCategory)throw Error('Select a category.');
+      if(details.type==='To Ghar'&&!details.paymentFor)throw Error('Select the home payment purpose.');
+      if(details.type==='Income Misc'&&!details.incomeType)throw Error('Select the income type.');
+      if(details.type==='Investment'&&!details.investmentType)throw Error('Select the investment type.');
+      if(current.direction==='self')throw Error('Own-account transfers must be ignored for expense posting.');
+      if(current.direction!==(['Income Misc','Lent Recovered'].includes(details.type)?'credit':'debit'))throw Error('Transaction type does not agree with the statement direction.');
+      if(allData.customFields.some(f=>f.enabled&&f.required&&visibleField(f,allData.customFields,details.customFields||{})&&(!f.applicableTypes.length||f.applicableTypes.includes(details.type!))&&(()=>{const v=details.customFields?.[f.key];return v===undefined||v===null||v===''||Array.isArray(v)&&v.length===0;})()))throw Error('Fill the required custom fields before posting.');
+    }
+    setData(prev=>{
+      const storedRow=prev.statementRows?.find(r=>r.id===id);if(!storedRow)return prev;
+      const row={...storedRow,account:details.account||storedRow.account};
+      const live=rowState(row,prev.transactions);
+      if(action==='reopen')return {...prev,statementRows:prev.statementRows!.map(r=>r.id===id?{...r,status:'pending',reason:'Reopened for review'}:r)};
+      if(live.status!=='pending')return prev;
+      let transactionId:string|undefined;let next=prev;
+      if(action==='match'){
+        const t=prev.transactions.find(t=>t.id===details.id);
+        if(!t||t.status!=='active'||t.date!==row.date||t.amountMinor!==row.amountMinor||t.account!==row.account||(['Income Misc','Lent Recovered'].includes(t.type)?'credit':'debit')!==row.direction)return prev;
+        if(prev.statementRows?.some(r=>r.id!==id&&r.source===row.source&&r.transactionId===t.id&&rowState(r,prev.transactions).status!=='pending'))return prev;
+        transactionId=t.id;next={...prev,transactions:prev.transactions.map(t=>t.id===transactionId?{...t,statementReferences:[...new Set([...(t.statementReferences||[]),...(row.reference?[row.reference]:[])])]}:t)};
+      }
+      if(action==='post'){
+        if(prev.transactions.some(t=>t.status==='active'&&row.reference&&t.statementReferences?.includes(row.reference)&&t.account===row.account))return prev;
+        const t=statementTransaction(row,details);transactionId=t.id;next={...prev,transactions:[t,...prev.transactions],categories:ensureStatementCategory(prev,t)};
+      }
+      return {...next,people:details.person&&!next.people.includes(details.person)?[...next.people,details.person]:next.people,statementRows:prev.statementRows!.map(r=>r.id===id?{...row,status:action==='ignore'?'ignored':action==='match'?'matched':'posted',transactionId,reason:reason||'Reviewed manually'}:r),actionLog:[...next.actionLog,{id:uid(),timestamp:Date.now(),actionType:'review',entityType:'statement',entityId:id,description:`Statement row ${action}: ${reason||'confirmed'}`}]};
+    });
+  }
   function saveBankAlerts(alerts:BankAlert[]) {setData(prev=>({...prev,bankAlerts:[...(prev.bankAlerts||[]),...alerts]}));}
   function updateBankAlert(id:string, updates:Partial<BankAlert>) {setData(prev=>({...prev,bankAlerts:(prev.bankAlerts||[]).map(a=>a.id===id?{...a,...updates,id:a.id,updatedAt:Date.now()}:a)}));}
   function logAction(action:string,entity:string,description:string) {
@@ -212,6 +294,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return copy;
       };
       for(const key of ['transactions','recurring','frequentTransactions','quickExpenses','receivables','repayments'] as const) (next as unknown as Record<string,unknown>)[key]=next[key].map(r=>refresh(r as unknown as Record<string,unknown>));
+      if(existing&&item.kind==='source')next.statementRows=next.statementRows?.map(r=>r.account===existing.name?{...r,account:item.name}:r);
+      if(existing&&item.kind==='category'&&next.importHabits)next.importHabits={...next.importHabits,vendors:next.importHabits.vendors.map(v=>v.category===existing.name?{...v,category:item.name}:v),narrations:next.importHabits.narrations.map(n=>n.category===existing.name?{...n,category:item.name}:n)};
       next.rules=next.rules.map(r=>({...r,enabled:!item.active && [...r.conditions,...r.actions].some(c=>c.valueId===item.id)?false:r.enabled,conditions:r.conditions.map(c=>c.valueId===item.id?{...c,value:item.name}:c),actions:r.actions.map(c=>c.valueId===item.id?{...c,value:item.name}:c)}));
       return next;
     });
@@ -230,7 +314,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     saveData(allData);
-  }, [allData]);
+    if(statementReady)saveStatementArchive(allData.statementRows||[],allData.statementBatches||[]).catch(()=>{setStatementError('Statement history could not be saved. Download a backup before closing the app.');window.dispatchEvent(new CustomEvent('finance-storage-error',{detail:'Statement history could not be saved. Download a backup before closing.'}));});
+  }, [allData,statementReady]);
 
   // Scheduled execution for recurring payments with automaticPosting
   useEffect(() => {
@@ -1077,6 +1162,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }
 
   const value: AppContextValue = {
+    statementReady,statementError,importStatement,reviewStatement,undoStatementBatch,
     bankCapture,
     saveBankAlerts,updateBankAlert,
     data, allData, deletedTransactions:allData.transactions.filter(t=>t.status==='deleted'),restoreTransaction,configure,logAction,manageMaster,removeMaster,importTransactions,
