@@ -26,3 +26,4 @@ dist-ssr
 finance_tracker_backup*.json
 Finance_Import_Template*.xlsx
 .netlify
+public/ocr

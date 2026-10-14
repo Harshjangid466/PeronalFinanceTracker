@@ -14,10 +14,11 @@ type View = TabId | 'recurring';
 
 function AppContent() {
   const [tab, setTab] = useState<View>('home');
+  const [transactionsSeen,setTransactionsSeen]=useState(false);
 
   const currentView=useRef<View>(tab);currentView.current=tab;
   function navigate(view: View) {
-    requestNavigation(()=>{window.history.pushState({financeView:view},'',`#${view}`);setTab(view);});
+    requestNavigation(()=>{window.history.pushState({financeView:view},'',`#${view}`);if(view==='transactions')setTransactionsSeen(true);setTab(view);});
   }
 
   function goBack() {
@@ -50,13 +51,13 @@ function AppContent() {
       ) : (
         <>
           {tab === 'home' && <HomeScreen onNavigate={navigate} />}
-          {tab === 'transactions' && <TransactionsScreen />}
           {tab === 'add' && <AddExpenseScreen />}
           {tab === 'recover' && <RecoverScreen />}
           {tab === 'settings' && <SettingsScreen />}
         </>
       )}
 
+      {transactionsSeen&&<div hidden={tab!=='transactions'}><TransactionsScreen active={tab==='transactions'}/></div>}
       <BottomNav active={isRecurring ? 'home' : tab} onChange={(t) => navigate(t)} />
     </div>
   );

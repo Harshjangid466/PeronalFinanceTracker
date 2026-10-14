@@ -11,11 +11,14 @@ import { TransactionForm } from '@/components/TransactionForm';
 import {AlertInbox} from '@/components/AlertInbox';
 const StatementWorkspace=lazy(()=>import('@/components/StatementWorkspace').then(m=>({default:m.StatementWorkspace})));
 
-export function TransactionsScreen() {
+export function TransactionsScreen({active=true}:{active?:boolean}) {
   const { data, deleteTransaction, deletedTransactions, restoreTransaction } = useApp();
   const [visibleCount,setVisibleCount]=useState(100);
   const [showDeleted,setShowDeleted]=useState(false);
-  const [showStatements,setShowStatements]=useState(false);
+  const [view,setView]=useState<'history'|'imports'>('history');
+  const [importsSeen,setImportsSeen]=useState(false);
+  const historyActive=active&&view==='history';
+  function switchView(next:'history'|'imports'){if(next==='imports')setImportsSeen(true);setView(next);}
   const [showTools,setShowTools]=useState(false);
   const [selected,setSelected]=useState<Transaction|null>(null);
   const [showAlerts,setShowAlerts]=useState(false);
@@ -99,18 +102,21 @@ export function TransactionsScreen() {
   }, [filtered]);
 
   return (
-    <div className="px-4 pt-6 pb-28 max-w-3xl mx-auto print:max-w-none print:p-0">
+    <div className="px-4 pt-6 pb-28 max-w-6xl mx-auto print:max-w-none print:p-0">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Transactions</h1>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">{view==='history'?'Transactions':'Imports & review'}</h1>
           <p className="text-xs text-slate-500 dark:text-slate-400">
-            {filtered.length} found · Total {formatCurrency(totalFilteredAmount)}
+            {view==='history'?`${filtered.length} found · Total ${formatCurrency(totalFilteredAmount)}`:'Your statement and review stay open while you check history.'}
           </p>
         </div>
 
-        <button aria-label="Transaction tools" onClick={()=>setShowTools(true)} className="px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-sm print:hidden">Tools</button>
+        {view==='history'&&<button aria-label="Transaction tools" onClick={()=>setShowTools(true)} className="px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-sm print:hidden">Tools</button>}
       </div>
 
+      <div role="tablist" aria-label="Transaction views" className="flex gap-1 border-b dark:border-slate-700 mb-5 print:hidden">{([['history','Transactions'],['imports','Imports & review']] as const).map(([key,label])=><button key={key} id={`transaction-${key}-tab`} role="tab" tabIndex={view===key?0:-1} onKeyDown={e=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(e.key)){e.preventDefault();const next=e.key==='Home'?'history':e.key==='End'?'imports':view==='history'?'imports':'history';switchView(next);document.getElementById(`transaction-${next}-tab`)?.focus();}}} aria-selected={view===key} aria-controls={`transaction-${key}-panel`} onClick={()=>switchView(key)} className={`px-4 py-3 text-sm border-b-2 ${view===key?'border-cyan-600 text-cyan-600 font-semibold':'border-transparent text-slate-500'}`}>{label}</button>)}</div>
+      <div id="transaction-imports-panel" role="tabpanel" aria-labelledby="transaction-imports-tab" hidden={view!=='imports'}>{importsSeen&&<Suspense fallback={<p>Opening statement review…</p>}><StatementWorkspace active={active&&view==='imports'} onShowHistory={()=>switchView('history')}/></Suspense>}</div>
+      <div id="transaction-history-panel" role="tabpanel" aria-labelledby="transaction-history-tab" hidden={view!=='history'} className="max-w-3xl mx-auto">
       {/* Universal Search (Section Q & AB) */}
       <div className="flex gap-2 mb-3 print:hidden">
         <div className="relative flex-1">
@@ -174,19 +180,17 @@ export function TransactionsScreen() {
         </div>
       )}
 
-      <button className="w-full mb-4 p-3 rounded-xl bg-cyan-600 text-white font-semibold print:hidden" onClick={()=>setShowStatements(true)}>Import statements & review</button>
-      <Sheet wide open={showStatements} onClose={()=>setShowStatements(false)} title="Statements & reconciliation"><Suspense fallback={<p>Opening statement review…</p>}><StatementWorkspace /></Suspense></Sheet>
-      <Sheet open={showTools} onClose={()=>setShowTools(false)} title="Transaction tools"><div className="grid gap-3">
+      <Sheet open={historyActive&&showTools} onClose={()=>setShowTools(false)} title="Transaction tools"><div className="grid gap-3">
         <button className="p-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-left" onClick={()=>{setShowTools(false);setShowImport(true);}}>Upload expense template</button>
         <button className="p-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-left" onClick={()=>{setShowTools(false);setShowExport(true);}}>Reports & export</button>
         <button className="p-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-left" onClick={()=>{setShowTools(false);setShowAlerts(true);}}>Manual bank-message inbox</button>
         <button className="p-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-left" onClick={()=>{setShowTools(false);setShowDeleted(true);}}>Deleted entries ({deletedTransactions.length})</button>
         <button className="p-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-left" onClick={handlePrint}>Print filtered transactions</button>
       </div></Sheet>
-      <Sheet open={showAlerts} onClose={()=>setShowAlerts(false)} title="Bank messages · Review before posting"><AlertInbox /></Sheet>
-      <Sheet open={showExport} onClose={()=>setShowExport(false)} title="Reports & Export"><ExportReport /></Sheet>
-      <Sheet open={showImport} onClose={()=>setShowImport(false)} title="Upload Expenses"><ImportExpenses /></Sheet>
-      <Sheet open={showDeleted} onClose={()=>setShowDeleted(false)} title="Deleted Transactions">{deletedTransactions.length===0?<p>No deleted transactions.</p>:[...deletedTransactions].sort((a,b)=>b.date.localeCompare(a.date)||b.createdAt-a.createdAt).map(t=><div key={t.id} className="border p-3 rounded-xl mb-2 text-xs"><b>{t.heading||t.type} · {formatCurrency(t.amount)}</b><p>{t.date} · {t.type} · {t.majorCategory} · {t.person}</p><p>Deleted: {t.deletedAt?new Date(t.deletedAt).toLocaleString('en-IN'):'Unknown'}</p><button className="bg-cyan-600 text-white rounded-xl p-2 mt-2" onClick={()=>restoreTransaction(t.id)}>Restore</button></div>)}</Sheet>
+      <Sheet open={historyActive&&showAlerts} onClose={()=>setShowAlerts(false)} title="Bank messages · Review before posting"><AlertInbox /></Sheet>
+      <Sheet open={historyActive&&showExport} onClose={()=>setShowExport(false)} title="Reports & Export"><ExportReport /></Sheet>
+      <Sheet open={historyActive&&showImport} onClose={()=>setShowImport(false)} title="Upload Expenses"><ImportExpenses /></Sheet>
+      <Sheet open={historyActive&&showDeleted} onClose={()=>setShowDeleted(false)} title="Deleted Transactions">{deletedTransactions.length===0?<p>No deleted transactions.</p>:[...deletedTransactions].sort((a,b)=>b.date.localeCompare(a.date)||b.createdAt-a.createdAt).map(t=><div key={t.id} className="border p-3 rounded-xl mb-2 text-xs"><b>{t.heading||t.type} · {formatCurrency(t.amount)}</b><p>{t.date} · {t.type} · {t.majorCategory} · {t.person}</p><p>Deleted: {t.deletedAt?new Date(t.deletedAt).toLocaleString('en-IN'):'Unknown'}</p><button className="bg-cyan-600 text-white rounded-xl p-2 mt-2" onClick={()=>restoreTransaction(t.id)}>Restore</button></div>)}</Sheet>
       {filtered.length===0?<p className="text-sm text-slate-500 text-center py-12">{data.transactions.length?'No matching transactions.':'No transactions yet.'}</p>:<div>
         {filtered.slice(0,visibleCount).map((t,index)=>{
           const credit=['Income Misc','Lent Recovered'].includes(t.type);
@@ -201,10 +205,10 @@ export function TransactionsScreen() {
         })}
       </div>}
       {filtered.length>visibleCount&&<button className="w-full mt-4 rounded-xl p-3 bg-slate-100 dark:bg-slate-800 text-sm print:hidden" onClick={()=>setVisibleCount(visibleCount+100)}>Show more ({visibleCount} of {filtered.length})</button>}
-      <Sheet open={!!selected} onClose={()=>setSelected(null)} title="Transaction details">{selected&&<div className="space-y-3 text-sm"><b>{formatCurrency(selected.amount)} · {selected.type}</b><dl className="space-y-2">{Object.entries(selected).filter(([k,v])=>v!==undefined&&v!==''&&['date','heading','majorCategory','subCategory','account','paymentMode','person','purchasedFrom','paymentFor','incomeType','investmentType','remarks','customFields','statementReferences'].includes(k)).map(([k,v])=><div key={k}><dt className="text-xs text-slate-500">{({date:'Date',heading:'Description',majorCategory:'Category',subCategory:'Subcategory',account:'Account',paymentMode:'Payment mode',person:'Person',purchasedFrom:'Purchased from',paymentFor:'Purpose',incomeType:'Income type',investmentType:'Investment type',remarks:'Narration / remarks',customFields:'Custom fields',statementReferences:'Payment references'} as Record<string,string>)[k]||k}</dt><dd className="break-words">{typeof v==='object'?JSON.stringify(v):String(v)}</dd></div>)}</dl><div className="flex gap-3"><button className="rounded-xl bg-cyan-600 text-white px-4 py-2" onClick={()=>{setEditingTransaction(selected);setSelected(null);}}>Edit</button><button className="rounded-xl bg-rose-50 text-rose-700 px-4 py-2" onClick={()=>{setDeleteConfirmId(selected.id);setSelected(null);}}>Delete</button></div></div>}</Sheet>
+      <Sheet open={historyActive&&!!selected} onClose={()=>setSelected(null)} title="Transaction details">{selected&&<div className="space-y-3 text-sm"><b>{formatCurrency(selected.amount)} · {selected.type}</b><dl className="space-y-2">{Object.entries(selected).filter(([k,v])=>v!==undefined&&v!==''&&['date','heading','majorCategory','subCategory','account','paymentMode','person','purchasedFrom','paymentFor','incomeType','investmentType','remarks','customFields','statementReferences'].includes(k)).map(([k,v])=><div key={k}><dt className="text-xs text-slate-500">{({date:'Date',heading:'Description',majorCategory:'Category',subCategory:'Subcategory',account:'Account',paymentMode:'Payment mode',person:'Person',purchasedFrom:'Purchased from',paymentFor:'Purpose',incomeType:'Income type',investmentType:'Investment type',remarks:'Narration / remarks',customFields:'Custom fields',statementReferences:'Payment references'} as Record<string,string>)[k]||k}</dt><dd className="break-words">{typeof v==='object'?JSON.stringify(v):String(v)}</dd></div>)}</dl><div className="flex gap-3"><button className="rounded-xl bg-cyan-600 text-white px-4 py-2" onClick={()=>{setEditingTransaction(selected);setSelected(null);}}>Edit</button><button className="rounded-xl bg-rose-50 text-rose-700 px-4 py-2" onClick={()=>{setDeleteConfirmId(selected.id);setSelected(null);}}>Delete</button></div></div>}</Sheet>
 
       {/* Filters Sheet */}
-      <Sheet open={showFilters} onClose={() => setShowFilters(false)} title="Filter Transactions">
+      <Sheet open={historyActive&&showFilters} onClose={() => setShowFilters(false)} title="Filter Transactions">
         <div className="space-y-3">
           <div>
             <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block mb-1">
@@ -340,7 +344,7 @@ export function TransactionsScreen() {
 
       {/* EDIT MODAL (Section O) */}
       <Sheet
-        open={Boolean(editingTransaction)}
+        open={historyActive&&Boolean(editingTransaction)}
         onClose={() => setEditingTransaction(null)}
         title={`Edit ${editingTransaction?.type || 'Transaction'}`}
       >
@@ -356,7 +360,7 @@ export function TransactionsScreen() {
 
       {/* DELETE CONFIRMATION MODAL (Section O) */}
       <Sheet
-        open={Boolean(deleteConfirmId)}
+        open={historyActive&&Boolean(deleteConfirmId)}
         onClose={() => setDeleteConfirmId(null)}
         title="Confirm Deletion"
       >
@@ -380,6 +384,7 @@ export function TransactionsScreen() {
           </div>
         </div>
       </Sheet>
+      </div>
     </div>
   );
 }
