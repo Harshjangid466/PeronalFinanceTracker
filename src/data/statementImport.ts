@@ -63,8 +63,8 @@ export function parsePaytmPages(pages:PdfTextPage[],batchId:string):StatementRow
  if(!rows.length)throw Error('No readable payments found. Scanned PDFs are not supported.');
  if(new Set(rows.map(r=>r.id)).size!==rows.length)throw Error('Repeated reference within the statement.');
  // Reject an incomplete extraction instead of posting a partial statement.
- const paid=flat.match(/Total Money Paid\s*-?\s*Rs\.?\s*([\d,]+(?:\.\d{1,2})?)\s*(\d+)\s*Payments made/i);
- const received=flat.match(/Total Money Received\s*\+?\s*Rs\.?\s*([\d,]+(?:\.\d{1,2})?)\s*(\d+)\s*Payments received/i);
+ const paid=flat.match(/Total Money Paid\s*-?\s*Rs\.?\s*([\d,]+(?:\.\d{1,2})?)\s*(\d+)\s*Payments? made/i);
+ const received=flat.match(/Total Money Received\s*\+?\s*Rs\.?\s*([\d,]+(?:\.\d{1,2})?)\s*(\d+)\s*Payments? received/i);
  if(!paid||!received)throw Error('Could not validate the Paytm summary totals.');
  for(const [control,direction] of [[paid,'debit'],[received,'credit']] as const){const subset=rows.filter(r=>r.direction===direction);if(subset.length!==Number(control[2])||subset.reduce((s,r)=>s+r.amountMinor,0)!==moneyMinor(control[1]))throw Error('Extracted payments do not agree with the statement summary. Nothing was imported.');}
  return rows;

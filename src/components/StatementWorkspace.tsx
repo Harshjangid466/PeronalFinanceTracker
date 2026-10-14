@@ -67,9 +67,9 @@ export function StatementWorkspace(){
   setReview(undefined);clearSheetDraft();setError('');
  }catch(e){setError(e instanceof Error?e.message:String(e));}}
  return <div className="space-y-5 text-sm">
-  <p>Import Paytm weekly for habit-based posting. Import a bank statement monthly to explain unmatched movements. Files are processed on this device.</p>
+  <p>Import a Paytm PDF for any date range using your habit rules. Import a bank statement monthly to explain unmatched movements. Files are processed on this device.</p>
   {statementError&&<p role="alert" className="text-rose-600">{statementError}</p>}{message&&!busy&&<p role="status">{message}</p>}
-  <div className="rounded-xl border dark:border-slate-700 p-4 space-y-3"><div className="flex gap-3"><button className={source==='paytm'?buttonStyle:'px-3 py-2'} onClick={()=>{setSource('paytm');setDraft([]);setGrid([]);}}>Weekly Paytm</button><button className={source==='bank'?buttonStyle:'px-3 py-2'} onClick={()=>{setSource('bank');setDraft([]);setGrid([]);}}>Monthly reconciliation</button></div>
+  <div className="rounded-xl border dark:border-slate-700 p-4 space-y-3"><div className="flex gap-3"><button className={source==='paytm'?buttonStyle:'px-3 py-2'} onClick={()=>{setSource('paytm');setDraft([]);setGrid([]);}}>Paytm PDF</button><button className={source==='bank'?buttonStyle:'px-3 py-2'} onClick={()=>{setSource('bank');setDraft([]);setGrid([]);}}>Monthly reconciliation</button></div>
    <label className="block">{source==='paytm'?'Paytm UPI PDF':'Bank / credit-card / Pluxee CSV or XLSX with headers'}<input aria-label="Choose statement" type="file" accept={source==='paytm'?'application/pdf,.pdf':'.csv,.xlsx'} disabled={busy||!statementReady||!!statementError} onChange={e=>{const input=e.currentTarget,f=input.files?.[0];if(!f){setError('No file was received. Save a copy in Files → On My iPhone and select it again.');return;}setSelectedName(f.name);void read(f).finally(()=>{input.value='';});}} className="block mt-2 w-full"/></label>
    {selectedName&&<p className="text-xs break-all">Selected: {selectedName}</p>}
    {busy&&<p role="status" aria-live="polite" className="text-cyan-600">{message||'Reading statement…'}</p>}
