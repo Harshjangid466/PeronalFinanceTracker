@@ -2,7 +2,9 @@
 
 Open **Transactions → Import statements & review**. The normal transaction list is grouped by date, newest first. Reports, expense-template upload, deleted entries and manual bank-message review are under **Tools**.
 
-## Weekly Paytm
+## Paytm PDF imports — any date range
+
+Import a daily, weekly, monthly or custom-period export. Weekly is only a suggested routine. Overlapping periods retain previously imported rows and review decisions without posting duplicates.
 
 1. In **Settings → Statement import habits**, load your approved habits JSON once. Vendor mappings remain on this device and are included in financial backups. You can add, change or disable vendors and narration rules, adjust morning hours, and set vendor amount limits.
 2. Choose the Paytm UPI statement PDF. The importer checks extracted debit/credit counts and amounts against the PDF summary. It rejects incomplete extraction rather than posting a partial statement. Scanned/image PDFs and password-protected PDFs are not supported.
