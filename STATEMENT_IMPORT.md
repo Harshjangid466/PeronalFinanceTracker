@@ -6,6 +6,7 @@ Open **Transactions → Import statements & review**. The normal transaction lis
 
 1. In **Settings → Statement import habits**, load your approved habits JSON once. Vendor mappings remain on this device and are included in financial backups. You can add, change or disable vendors and narration rules, adjust morning hours, and set vendor amount limits.
 2. Choose the Paytm UPI statement PDF. The importer checks extracted debit/credit counts and amounts against the PDF summary. It rejects incomplete extraction rather than posting a partial statement. Scanned/image PDFs and password-protected PDFs are not supported.
+   On an iPhone Home Screen app, save a local copy in **Files → On My iPhone**, then select it. Its filename and reading status appear beside the picker. Reading starts before loading the PDF engine; the reader uses the compatibility build and reports unreadable/undownloaded files explicitly.
 3. Confirm the account mappings. An account that cannot be identified remains in review.
 4. Import. Recognised, complete revenue-expense rules can post automatically. Narration prevails over vendor habits. NHPV and own-account/cash transfers are excluded from expense posting. New vendors, unfamiliar/complex narration, conflicting rules, amount discrepancies, required custom fields and unusual amounts remain pending.
 5. Review pending rows: match an existing entry, inspect/edit an amount discrepancy, post a reviewed entry, or ignore with a reason. You can save a vendor default while posting. Exact account/reference/date/amount matches are linked automatically. Amount/date-only candidates require confirmation.
@@ -34,4 +35,4 @@ The weekly summary runs Monday through today and compares the same elapsed weekd
 
 PDF/Excel libraries load on demand. Original statement files are not saved. Extracted rows and review decisions are stored in IndexedDB; financial entries and habits retain the existing ledger storage. Backups include both. This is device/browser-local, with no cross-device synchronization added. Download a backup before moving devices or clearing site storage.
 
-Run `npm run test:statements`, `npm run test:alerts`, `npm run test:capture`, and `npm run build`. Statement fixtures committed to the repository are synthetic. Personal statements, backups and vendor mappings must remain outside the repository.
+Run `npm run test:statements`, `npm run test:pdf-upload`, `npm run test:alerts`, `npm run test:capture`, and `npm run build`. Statement fixtures committed to the repository are synthetic. Personal statements, backups and vendor mappings must remain outside the repository.

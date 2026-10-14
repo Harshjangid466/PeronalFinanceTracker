@@ -10,6 +10,7 @@ import {DynamicFields} from './DynamicFields';
 import {TransactionForm} from './TransactionForm';
 import {inputStyle,buttonStyle} from './ConfigurationTools';
 import {clearSheetDraft} from './NavigationGuard';
+import {readPaytmFile} from '@/data/readStatementFile';
 
 export function StatementWorkspace(){
  const {allData:data,statementReady,statementError,importStatement,reviewStatement,configure,undoStatementBatch}=useApp();
@@ -20,6 +21,7 @@ export function StatementWorkspace(){
  const [status,setStatus]=useState('pending');const [batchFilter,setBatchFilter]=useState('');const [search,setSearch]=useState('');const [limit,setLimit]=useState(50);const [review,setReview]=useState<StatementRow>();const [editing,setEditing]=useState<Transaction>();
  const [details,setDetails]=useState<Partial<Transaction>>({});const [ignoreReason,setIgnoreReason]=useState('');const [remember,setRemember]=useState(false);const [confirmedSeparate,setConfirmedSeparate]=useState(false);
  const [confirmUndo,setConfirmUndo]=useState(false);
+ const [selectedName,setSelectedName]=useState('');
  const reserved=useMemo(()=>new Set((data.statementRows||[]).filter(r=>r.source===review?.source&&r.transactionId&&r.id!==review?.id&&rowState(r,data.transactions).status!=='pending').map(r=>r.transactionId!)),[data.statementRows,data.transactions,review]);
  const matches=review?candidates({...review,account:details.account||review.account},data.transactions,reserved):[];
  const mapped=draft.map(r=>{const account=r.source==='bank'?r.account:accounts[r.account]||r.account;return {...r,account};});
@@ -38,7 +40,7 @@ export function StatementWorkspace(){
   const id='batch-'+Date.now()+'-'+Math.random().toString(36).slice(2,8);const b:StatementBatch={id,source,name:file.name,createdAt:Date.now(),from:'',to:'',count:0};setBatch(b);
   try{if(file.size>25*1024*1024)throw Error('Choose a statement smaller than 25 MB.');if(source==='paytm'){
    if(!file.name.toLowerCase().endsWith('.pdf'))throw Error('Choose the Paytm UPI statement PDF.');
-   const {readPaytmFile}=await import('@/data/readStatementFile');const rs=await readPaytmFile(file,id,setMessage);
+   const rs=await readPaytmFile(file,id,setMessage);
    const unique=[...new Set(rs.map(r=>r.account))];const defaults:Record<string,string>={};
    unique.forEach(a=>{const prefix=a.startsWith('HDFC')?'HDFC':a.startsWith('State Bank')?'SBI':a.startsWith('Bank Of Baroda')?'BOB':'';defaults[a]=data.accounts.find(n=>prefix&&n.startsWith(prefix)&&/Savings/i.test(n))||'';});
    setAccounts(defaults);setDraft(rs);setMessage('Confirm each source account before importing.');
@@ -66,9 +68,13 @@ export function StatementWorkspace(){
  }catch(e){setError(e instanceof Error?e.message:String(e));}}
  return <div className="space-y-5 text-sm">
   <p>Import Paytm weekly for habit-based posting. Import a bank statement monthly to explain unmatched movements. Files are processed on this device.</p>
-  {statementError&&<p role="alert" className="text-rose-600">{statementError}</p>}{error&&<p role="alert" className="text-rose-600">{error}</p>}{message&&<p role="status">{message}</p>}
+  {statementError&&<p role="alert" className="text-rose-600">{statementError}</p>}{message&&!busy&&<p role="status">{message}</p>}
   <div className="rounded-xl border dark:border-slate-700 p-4 space-y-3"><div className="flex gap-3"><button className={source==='paytm'?buttonStyle:'px-3 py-2'} onClick={()=>{setSource('paytm');setDraft([]);setGrid([]);}}>Weekly Paytm</button><button className={source==='bank'?buttonStyle:'px-3 py-2'} onClick={()=>{setSource('bank');setDraft([]);setGrid([]);}}>Monthly reconciliation</button></div>
-   <label className="block">{source==='paytm'?'Paytm UPI PDF':'Bank / credit-card / Pluxee CSV or XLSX with headers'}<input aria-label="Choose statement" type="file" accept={source==='paytm'?'.pdf':'.csv,.xlsx'} disabled={busy||!statementReady||!!statementError} onChange={e=>{const f=e.target.files?.[0];if(f)void read(f);e.target.value='';}} className="block mt-2 w-full"/></label>
+   <label className="block">{source==='paytm'?'Paytm UPI PDF':'Bank / credit-card / Pluxee CSV or XLSX with headers'}<input aria-label="Choose statement" type="file" accept={source==='paytm'?'application/pdf,.pdf':'.csv,.xlsx'} disabled={busy||!statementReady||!!statementError} onChange={e=>{const input=e.currentTarget,f=input.files?.[0];if(!f){setError('No file was received. Save a copy in Files → On My iPhone and select it again.');return;}setSelectedName(f.name);void read(f).finally(()=>{input.value='';});}} className="block mt-2 w-full"/></label>
+   {selectedName&&<p className="text-xs break-all">Selected: {selectedName}</p>}
+   {busy&&<p role="status" aria-live="polite" className="text-cyan-600">{message||'Reading statement…'}</p>}
+   {error&&<p role="alert" className="text-rose-600">{error}</p>}
+   <p className="text-xs text-slate-500">On iPhone, save the PDF in Files → On My iPhone first. Selecting it should show its filename here.</p>
    {source==='bank'&&<label className="block">Statement type<select aria-label="Statement type" className={inputStyle} value={kind} onChange={e=>{setKind(e.target.value as typeof kind);setDraft([]);}}><option value="bank">Bank account</option><option value="card">Credit card (outstanding balance)</option><option value="pluxee">Pluxee (available balance)</option></select></label>}
    {grid.length>0&&<div className="grid sm:grid-cols-3 gap-3"><label>Account<select aria-label="Bank account" className={inputStyle} value={bankAccount} onChange={e=>{setBankAccount(e.target.value);setDraft([]);}}><option value="">Choose account</option>{data.accounts.map(a=><option key={a}>{a}</option>)}</select></label>
    <label>Amount layout<select aria-label="Amount layout" className={inputStyle} value={mapping.amountMode||'separate'} onChange={e=>{setDraft([]);setMapping({...mapping,amountMode:e.target.value as BankColumns['amountMode']});}}><option value="separate">Separate debit / credit columns</option><option value="signed">One signed amount column</option><option value="direction">Amount + debit / credit label</option></select></label>
