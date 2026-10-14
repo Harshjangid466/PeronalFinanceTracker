@@ -132,6 +132,7 @@ export interface Recurring {
   customIntervalDays?: number;
   startDate: string;
   nextDueDate: string;
+  scheduleDay?:number;
   endDate?: string;
   automaticPosting: boolean;
   type: TransactionType;
@@ -293,6 +294,7 @@ export interface DependencyCheckResult {
 export interface AppData {
   monthlyIncomeMinor?:Record<string,number>;
   importHabits?:ImportHabits;
+  dismissedHabitSuggestions?:string[];
   statementRows?:StatementRow[];
   statementBatches?:StatementBatch[];
   bankAlerts?: BankAlert[];

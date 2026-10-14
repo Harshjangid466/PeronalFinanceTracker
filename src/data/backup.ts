@@ -12,6 +12,7 @@ export function mergeBackup(current:AppData, text:string):AppData {
   const arrayKeys=['transactions','receivables','repayments','recurring','quickExpenses','frequentTransactions','quickAmounts','categories','accounts','paymentModes','people','capexPurchasedFrom','toGharPaymentFor','incomeTypes','investmentTypes','customFields','formFields','recurringFormFields','rules','actionLog','masters','suppressedPatterns','skippedOccurrences','deactivatedAccounts','deactivatedPaymentModes','deactivatedCategories','deactivatedPeople'];
   arrayKeys.push('bankAlerts');
   arrayKeys.push('statementBatches');
+  arrayKeys.push('dismissedHabitSuggestions');
   for(const key of arrayKeys) if(source[key]!==undefined && !Array.isArray(source[key]))throw new Error(`Invalid ${key} in backup.`);
   const ids=new Set<string>();
   for(const t of source.transactions){

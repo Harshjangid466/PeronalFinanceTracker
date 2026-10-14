@@ -1,3 +1,4 @@
+import {nextRecurringDate,processRecurringDue,recurringIsDue} from '@/data/recurring';
 import { createContext, useContext, useEffect, useState, useMemo, type ReactNode } from 'react';
 import type {
   AppData,
@@ -19,7 +20,7 @@ import {
 } from '@/data/types';
 import { loadData, saveData, uid } from '@/data/storage';
 import {loadStatementArchive,saveStatementArchive} from '@/data/statementStore';
-import {classifyImport,mergeStatementRows,rowState,batchUndoCandidates,type StatementRow,type StatementBatch} from '@/data/statements';
+import {classifyImport,mergeStatementRows,rowState,batchUndoCandidates,saveStatementPosting,type StatementRow,type StatementBatch} from '@/data/statements';
 import {defaultImportHabits} from '@/data/approvedHabits';
 import { migrateData, projectMasters, financialEffect, dependencies, idFields, masterFields, patternKey, visibleField, type MasterItem, type MasterKind } from '@/data/model';
 import { auditChanges } from '@/data/audit';
@@ -28,9 +29,7 @@ import type {BankAlert} from '@/data/alerts';
 import {mergeCaptured} from '@/data/captureProtocol';
 import {useBankCapture,type BankCapture} from './useBankCapture';
 import {
-  addDays,
   addMonths,
-  addYears,
   todayISO,
   toPaise,
   toRupees,
@@ -235,7 +234,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if(action==='ignore'&&!reason.trim())throw Error('Enter a reason for ignoring this row.');
     if(action==='post'){
       if(rowState(current,allData.transactions).status!=='pending')throw Error('This row is already settled.');
-      if(allData.transactions.some(t=>t.status==='active'&&current.reference&&t.statementReferences?.includes(current.reference)&&t.account===current.account))throw Error('An entry with this payment reference already exists. Edit or match that entry.');
+      if(allData.transactions.some(t=>t.status==='active'&&t.id!==current.transactionId&&current.reference&&t.statementReferences?.includes(current.reference)&&t.account===current.account))throw Error('An entry with this payment reference already exists. Edit or match that entry.');
       if(!details.type||!allData.accounts.includes(current.account))throw Error('Select a transaction type and valid account.');
       if(!details.paymentMode||!allData.paymentModes.includes(details.paymentMode))throw Error('Select a payment mode.');
       if(allData.masters?.some(m=>!m.active&&((m.kind==='source'&&m.name===current.account)||(m.kind==='paymentMode'&&m.name===details.paymentMode)||(m.kind==='category'&&m.name===details.majorCategory)||(m.kind==='person'&&m.name===details.person))))throw Error('Choose active account, payment mode, category and person values.');
@@ -262,8 +261,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         transactionId=t.id;next={...prev,transactions:prev.transactions.map(t=>t.id===transactionId?{...t,statementReferences:[...new Set([...(t.statementReferences||[]),...(row.reference?[row.reference]:[])])]}:t)};
       }
       if(action==='post'){
-        if(prev.transactions.some(t=>t.status==='active'&&row.reference&&t.statementReferences?.includes(row.reference)&&t.account===row.account))return prev;
-        const t=statementTransaction(row,details);transactionId=t.id;next={...prev,transactions:[t,...prev.transactions],categories:ensureStatementCategory(prev,t)};
+        const posted=saveStatementPosting(prev.transactions,row,statementTransaction(row,details));transactionId=posted.saved.id;next={...prev,transactions:posted.transactions,categories:ensureStatementCategory(prev,posted.saved)};
       }
       return {...next,people:details.person&&!next.people.includes(details.person)?[...next.people,details.person]:next.people,statementRows:prev.statementRows!.map(r=>r.id===id?{...row,status:action==='ignore'?'ignored':action==='match'?'matched':'posted',transactionId,reason:reason||'Reviewed manually'}:r),actionLog:[...next.actionLog,{id:uid(),timestamp:Date.now(),actionType:'review',entityType:'statement',entityId:id,description:`Statement row ${action}: ${reason||'confirmed'}`}]};
     });
@@ -317,55 +315,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if(statementReady)saveStatementArchive(allData.statementRows||[],allData.statementBatches||[]).catch(()=>{setStatementError('Statement history could not be saved. Download a backup before closing the app.');window.dispatchEvent(new CustomEvent('finance-storage-error',{detail:'Statement history could not be saved. Download a backup before closing.'}));});
   }, [allData,statementReady]);
 
-  // Scheduled execution for recurring payments with automaticPosting
-  useEffect(() => {
-    const today = todayISO();
-    const dueRecurring = data.recurring.filter((r) => {
-      if (!r.automaticPosting || r.status === 'Paused' || r.status === 'Cancelled' || r.status==='Completed') return false;
-      const next = new Date(r.nextDueDate + 'T00:00:00');
-      const todayDate = new Date(today + 'T00:00:00');
-      return next <= todayDate && (!r.endDate || r.nextDueDate <= r.endDate);
-    });
-
-    if (dueRecurring.length === 0) return;
-
-    setData((prev) => {
-      let updated = { ...prev };
-      for (const template of dueRecurring) {
-        let r=updated.recurring.find(x=>x.id===template.id);
-        while(r && r.nextDueDate<=today && r.status!=='Completed' && r.status!=='Cancelled' && (!r.endDate||r.nextDueDate<=r.endDate)) {
-          const date=r.nextDueDate;
-          if(updated.transactions.some(t=>t.recurringTemplateId===r!.id&&t.recurringOccurrenceDate===date)||updated.skippedOccurrences?.includes(`${r.id}|${date}`)) {
-            updated={...updated,recurring:updated.recurring.map(x=>x.id===r!.id?{...x,nextDueDate:computeNextDue(x)}:x)};
-          }else updated=postRecurringInData(updated,r.id);
-          r=updated.recurring.find(x=>x.id===template.id);
-          if(r?.nextDueDate===date)break;
-        }
-      }
-      return updated;
-    });
-  }, []);
-
-  // Compute next due date for recurring
-  function computeNextDue(r: Recurring): string {
-    const from = r.nextDueDate;
-    switch (r.frequency) {
-      case 'Weekly':
-        return addDays(from, 7);
-      case 'Monthly':
-        return addMonths(from, 1);
-      case 'Quarterly':
-        return addMonths(from, 3);
-      case 'Half-yearly':
-        return addMonths(from, 6);
-      case 'Yearly':
-        return addYears(from, 1);
-      case 'Custom':
-        return addDays(from, r.customIntervalDays ?? 1);
-      default:
-        return addMonths(from, 1);
-    }
-  }
+  const [recurringDay,setRecurringDay]=useState(todayISO);
+  useEffect(()=>{const refresh=()=>setRecurringDay(todayISO());const timer=setInterval(refresh,60000);window.addEventListener('focus',refresh);document.addEventListener('visibilitychange',refresh);return()=>{clearInterval(timer);window.removeEventListener('focus',refresh);document.removeEventListener('visibilitychange',refresh);};},[]);
+  useEffect(()=>{if(allData.recurring.some(r=>recurringIsDue(r,recurringDay)))setData(prev=>processRecurringDue(prev,recurringDay,postRecurringInData));},[allData.recurring,recurringDay]);
+  function computeNextDue(r:Recurring):string{return nextRecurringDate(r);}
 
   function postRecurringInData(prev: AppData, id: string): AppData {
     const r = prev.recurring.find((rec) => rec.id === id);
@@ -642,6 +595,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       id: uid(),
       createdAt: Date.now(),
       nextDueDate: r.startDate,
+      scheduleDay:Number(r.startDate.slice(-2)),
       status: r.status || 'Scheduled',amountMinor:toPaise(r.amount),
     };
     setData((prev) => ({ ...prev, recurring: [rec, ...prev.recurring] }));
@@ -651,7 +605,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   function updateRecurring(id: string, updates: Partial<Recurring>) {
     setData((prev) => ({
       ...prev,
-      recurring: prev.recurring.map(r=>{if(r.id!==id)return r;const next={...r,...updates};if(updates.amount!==undefined)next.amountMinor=toPaise(updates.amount);for(const field of Object.keys(masterFields))if(field in updates)delete (next as unknown as Record<string,unknown>)[idFields[field]];return next;}),
+      recurring: prev.recurring.map(r=>{if(r.id!==id)return r;const next={...r,...updates};if(updates.nextDueDate&&updates.nextDueDate!==r.nextDueDate)next.scheduleDay=Number(updates.nextDueDate.slice(-2));else if(updates.startDate&&updates.startDate!==r.startDate)next.scheduleDay=Number(updates.startDate.slice(-2));if(updates.amount!==undefined)next.amountMinor=toPaise(updates.amount);for(const field of Object.keys(masterFields))if(field in updates)delete (next as unknown as Record<string,unknown>)[idFields[field]];return next;}),
     }));
   }
 

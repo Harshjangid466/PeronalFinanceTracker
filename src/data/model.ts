@@ -27,6 +27,7 @@ export function migrateData(input: AppData): AppData {
   data.statementRows ||= []; data.statementBatches ||= []; validateStatementRows(data.statementRows);
   validateStatementBatches(data.statementBatches);
   if(data.importHabits)validateHabits(data.importHabits);
+  if(data.dismissedHabitSuggestions&&(!Array.isArray(data.dismissedHabitSuggestions)||data.dismissedHabitSuggestions.some(id=>typeof id!=='string')))throw Error('Invalid dismissed habit suggestions');
   data.bankAlerts ||= []; validateAlerts(data.bankAlerts);
   const upgrading = data.schemaVersion < 4 || !data.masters;
   data.masters ||= []; data.sourceMappings ||= {}; data.suppressedPatterns ||= [];

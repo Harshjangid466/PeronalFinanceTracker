@@ -3,8 +3,8 @@ import type {AppData, Transaction, TransactionType} from './types';
 export interface VendorHabit {id:string;vendor:string;enabled:boolean;action:'post'|'ignore'|'review';category:string;subcategory:string;type:TransactionType;maxAmountMinor?:number;prefix?:boolean;}
 export interface NarrationHabit {id:string;terms:string[];enabled:boolean;action:'post'|'ignore'|'review';category:string;subcategory:string;}
 export interface ImportHabits {version:1;vendors:VendorHabit[];narrations:NarrationHabit[];morningEnabled:boolean;morningStart:string;morningEnd:string;morningAutoPost:boolean;unusualMultiplier:number;}
-export interface StatementRow {id:string;batchId:string;source:'paytm'|'bank';date:string;time?:string;vendor:string;note:string;account:string;reference:string;amountMinor:number;direction:'debit'|'credit'|'self';status:'pending'|'posted'|'matched'|'ignored';transactionId?:string;reason?:string;baselineAmountMinor?:number;sourceRow?:number;sourcePage?:number;originalAccount?:string;originalDate?:string;}
-export interface StatementBatch {id:string;source:'paytm'|'bank';name:string;createdAt:number;from:string;to:string;count:number;rowIds?:string[];openingMinor?:number;closingMinor?:number;kind?:'bank'|'card'|'pluxee';}
+export interface StatementRow {id:string;batchId:string;source:'paytm'|'bank';date:string;valueDate?:string;time?:string;vendor:string;note:string;account:string;reference:string;amountMinor:number;direction:'debit'|'credit'|'self';status:'pending'|'posted'|'matched'|'ignored';transactionId?:string;reason?:string;baselineAmountMinor?:number;sourceRow?:number;sourcePage?:number;originalAccount?:string;originalDate?:string;paymentMode?:string;}
+export interface StatementBatch {id:string;source:'paytm'|'bank';name:string;createdAt:number;from:string;to:string;count:number;rowIds?:string[];openingMinor?:number;closingMinor?:number;kind?:'bank'|'card'|'pluxee';sourceFormat?:string;sourceWarning?:string;}
 export interface Classification {action:'post'|'ignore'|'review';category:string;subcategory:string;type:TransactionType;reason:string;}
 export const clean=(s:string)=>s.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu,' ').trim();
 export function rowId(source:string,account:string,ref:string,date:string,minor:number,vendor:string){
@@ -63,6 +63,14 @@ export function rowState(row:StatementRow,txns:Transaction[]):StatementRow{
  if(!t||t.status!=='active'||t.date!==row.date||t.account!==row.account||t.amountMinor!==row.amountMinor||directionOf(t)!==row.direction)return {...row,status:'pending',reason:'Linked entry changed or was deleted; review again'};
  return row;
 }
+export function saveStatementPosting(txns:Transaction[],row:StatementRow,proposed:Transaction):{transactions:Transaction[];saved:Transaction}{
+ const linked=txns.find(t=>t.id===row.transactionId&&t.status==='active');
+ if(txns.some(t=>t.status==='active'&&t.id!==linked?.id&&row.reference&&t.account===row.account&&t.statementReferences?.includes(row.reference)))throw Error('An entry with this payment reference already exists. Match or edit that entry.');
+ const saved=linked?{...linked,...proposed,id:linked.id,createdAt:linked.createdAt,statementReferences:[...new Set([...(linked.statementReferences||[]),...(proposed.statementReferences||[])])]}:proposed;
+ if(linked){const identifiers:Record<string,string>={account:'sourceId',paymentMode:'paymentModeId',majorCategory:'majorCategoryId',subCategory:'subCategoryId',person:'personId',purchasedFrom:'merchantId',paymentFor:'purposeId',incomeType:'incomeTypeId',investmentType:'investmentTypeId'};for(const [field,id] of Object.entries(identifiers))if(linked[field as keyof Transaction]!==saved[field as keyof Transaction])delete (saved as unknown as Record<string,unknown>)[id];}
+ if(linked&&linked.majorCategory!==saved.majorCategory)delete saved.subCategoryId;
+ return {saved,transactions:linked?txns.map(t=>t.id===linked.id?saved:t):[saved,...txns]};
+}
 export function batchUndoCandidates(batch:StatementBatch,rows:StatementRow[],txns:Transaction[]):string[]{
  return rows.filter(r=>r.batchId===batch.id&&r.status==='posted'&&r.reason!=='Reviewed manually'&&rowState(r,txns).status==='posted').flatMap(r=>{
   const t=txns.find(t=>t.id===r.transactionId);return t&&t.status==='active'&&t.updatedAt===t.createdAt&&t.statementReferences?.includes(r.reference)?[t.id]:[];
@@ -82,7 +90,7 @@ export function reconciliationAdvice(row:StatementRow,txns:Transaction[]){
  const refs=sameAccount.filter(t=>row.reference&&t.statementReferences?.includes(row.reference));
  const exact=candidates(row,txns);
  const nearAmount=sameAccount.filter(t=>t.date===row.date&&Math.abs(t.amountMinor-row.amountMinor)<=100);
- const nearDate=sameAccount.filter(t=>t.amountMinor===row.amountMinor&&Math.abs(Date.parse(t.date)-Date.parse(row.date))<=3*86400000);
+ const nearDate=row.source==='bank'?sameAccount.filter(t=>t.amountMinor===row.amountMinor&&Math.abs(Date.parse(t.date)-Date.parse(row.date))<=3*86400000):[];
  const options=refs.length?refs:exact.length?exact:nearAmount.length?nearAmount:nearDate;
  if(options.length>1)return {kind:'ambiguous',message:'Several existing entries could relate to this row. Confirm the payment reference or vendor before choosing one.',candidates:options};
  if(options.length===1){const t=options[0];
@@ -101,7 +109,7 @@ export function mergeStatementRows(old:StatementRow[],incoming:StatementRow[]):S
 }
 export function validateStatementRows(value:unknown):asserts value is StatementRow[]{
  if(!Array.isArray(value))throw Error('Invalid statement history');const ids=new Set<string>();
- for(const r of value){if(!r||typeof r.id!=='string'||ids.has(r.id)||!/^\d{4}-\d{2}-\d{2}$/.test(r.date)||new Date(r.date+'T00:00:00Z').toISOString().slice(0,10)!==r.date||!Number.isSafeInteger(r.amountMinor)||r.amountMinor<=0||!['debit','credit','self'].includes(r.direction)||!['pending','posted','matched','ignored'].includes(r.status)||!['paytm','bank'].includes(r.source)||['vendor','account','note','reference','batchId'].some(k=>typeof r[k]!=='string'))throw Error('Invalid statement row');ids.add(r.id);}
+ for(const r of value){if(!r||typeof r.id!=='string'||ids.has(r.id)||!/^\d{4}-\d{2}-\d{2}$/.test(r.date)||new Date(r.date+'T00:00:00Z').toISOString().slice(0,10)!==r.date||!Number.isSafeInteger(r.amountMinor)||r.amountMinor<=0||!['debit','credit','self'].includes(r.direction)||!['pending','posted','matched','ignored'].includes(r.status)||!['paytm','bank'].includes(r.source)||['vendor','account','note','reference','batchId'].some(k=>typeof r[k]!=='string'))throw Error('Invalid statement row');if(r.valueDate!==undefined&&(typeof r.valueDate!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(r.valueDate)||Number.isNaN(Date.parse(r.valueDate))||new Date(r.valueDate+'T00:00:00Z').toISOString().slice(0,10)!==r.valueDate))throw Error('Invalid statement value date');ids.add(r.id);}
 }
 export function validateHabits(value:unknown):asserts value is ImportHabits{
  const h=value as ImportHabits;if(!h||h.version!==1||!Array.isArray(h.vendors)||!Array.isArray(h.narrations)||!Number.isFinite(h.unusualMultiplier)||h.unusualMultiplier<1||![h.morningStart,h.morningEnd].every(t=>typeof t==='string'&&/^\d{2}:\d{2}$/.test(t)))throw Error('Invalid statement habit settings');

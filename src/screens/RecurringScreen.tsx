@@ -115,7 +115,7 @@ export function RecurringScreen() {
         </button>
       </div>
 
-      <p className="text-xs text-slate-500">Automatic posting runs on app opening. Background/server posting is not connected.</p>
+      <p className="text-xs text-slate-500">Automatic entries are recorded when you open or resume the app, and while it stays open. Overdue occurrences catch up once each. This records entries; it does not pay bills or run while the app is closed.</p>
       {/* Upcoming Section */}
       <div>
         <div className="flex items-center gap-2 mb-2">
@@ -458,7 +458,7 @@ export function RecurringScreen() {
           <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
             <div>
               <p className="text-xs font-bold text-slate-800 dark:text-slate-200">Automatic Posting</p>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400">Posts overdue entries when you open the app. Server background posting is not connected.</p>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">Records due entries while the app is open or on resume. Does not make payments.</p>
             </div>
             <button
               type="button"
