@@ -1,6 +1,7 @@
 import {financialEffect} from './model';
 import type { MasterItem } from './model';
 import type { BankAlert } from './alerts';
+import type {ImportHabits,StatementRow,StatementBatch} from './statements';
 
 export type TransactionType =
   | 'Revenue Expense'
@@ -64,6 +65,7 @@ export interface FinancialEffect {
 export function deriveFinancialEffect(type: TransactionType, amount: number): FinancialEffect { return financialEffect(normalizeTransactionType(type),Math.round(amount*100)); }
 
 export interface Transaction {
+  statementReferences?:string[];
   id: string;
   customFieldIds?:Record<string,string>; customOptionIds?:Record<string,string[]>;
   sourceId?: string; paymentModeId?: string; majorCategoryId?: string; subCategoryId?: string; personId?: string; merchantId?: string; purposeId?: string; incomeTypeId?: string; investmentTypeId?: string;
@@ -289,6 +291,10 @@ export interface DependencyCheckResult {
 }
 
 export interface AppData {
+  monthlyIncomeMinor?:Record<string,number>;
+  importHabits?:ImportHabits;
+  statementRows?:StatementRow[];
+  statementBatches?:StatementBatch[];
   bankAlerts?: BankAlert[];
   schemaVersion: number;
   transactions: Transaction[];

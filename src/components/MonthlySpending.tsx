@@ -1,0 +1,24 @@
+import {useState} from 'react';
+import {useApp} from '@/context/AppContext';
+import {formatCurrency,todayISO} from '@/data/format';
+import {moneyMinor} from '@/data/statementImport';
+import {spendingSummary} from '@/data/spending';
+import {rowState} from '@/data/statements';
+import {inputStyle,buttonStyle} from './ConfigurationTools';
+export function MonthlySpending(){
+ const {allData:data,configure}=useApp();const today=todayISO();const[month,setMonth]=useState(today.slice(0,7)),[editing,setEditing]=useState(false),[value,setValue]=useState(''),[error,setError]=useState('');
+ const stats=spendingSummary(data.transactions,month,today),income=data.monthlyIncomeMinor?.[month];
+ const percentage=(amount:number,total:number|undefined)=>total?`${(amount/total*100).toFixed(1)}%`:'—';
+ const pending=(data.statementRows||[]).map(r=>rowState(r,data.transactions)).filter(r=>r.status==='pending'&&r.date.slice(0,7)===month).length;
+ function save(){try{const figures={...data.monthlyIncomeMinor};if(value.trim())figures[month]=moneyMinor(value);else delete figures[month];configure({monthlyIncomeMinor:figures});setEditing(false);setError('');}catch(e){setError(e instanceof Error?e.message:String(e));}}
+ return <section className="bg-white dark:bg-slate-800 border dark:border-slate-700 rounded-2xl p-4 space-y-4 text-sm">
+  <div className="flex justify-between items-center gap-3"><h2 className="font-semibold">Spending & income</h2><input aria-label="Spending month" type="month" className="bg-transparent border rounded-lg p-2 min-w-0" value={month} onChange={e=>{if(e.target.value)setMonth(e.target.value);setEditing(false);}}/></div>
+  <div className="grid grid-cols-2 gap-3"><div><p className="text-xs text-slate-500">Personal expenses</p><b className="text-lg">{formatCurrency(stats.totalMinor/100)}</b></div><div><p className="text-xs text-slate-500">Salary / revenue</p><b>{income===undefined?'Not entered':formatCurrency(income/100)}</b><button className="block text-xs text-cyan-600 mt-1" onClick={()=>{setValue(income===undefined?'':String(income/100));setEditing(true);}}>Enter / update income</button></div></div>
+  {editing&&<div className="space-y-2"><label className="block">Total salary / revenue for {month} (₹)<input aria-label="Monthly salary or revenue" className={inputStyle} inputMode="decimal" value={value} onChange={e=>setValue(e.target.value)}/></label><p className="text-xs text-slate-500">Enter the total once. Recorded income entries are not added again. Leave blank to remove this figure.</p>{error&&<p role="alert" className="text-rose-600">{error}</p>}<button className={buttonStyle} onClick={save}>Save income</button><button className="ml-3" onClick={()=>setEditing(false)}>Cancel</button></div>}
+  <div className="overflow-x-auto"><table className="w-full text-left text-xs"><thead><tr className="text-slate-500 border-b dark:border-slate-700"><th className="py-2">Category</th><th className="text-right">Amount</th><th className="text-right">% spend</th><th className="text-right">% income</th></tr></thead><tbody>{stats.categories.map(([name,amount])=><tr key={name} className="border-b dark:border-slate-700"><td className="py-2 pr-2">{name}</td><td className="text-right whitespace-nowrap">{formatCurrency(amount/100)}</td><td className="text-right">{percentage(amount,stats.totalMinor)}</td><td className="text-right">{percentage(amount,income)}</td></tr>)}</tbody></table></div>
+  {!stats.count&&<p className="text-slate-500">No personal expenses recorded for this month.</p>}
+  {income!==undefined&&<p>Income left after personal expenses: <b>{formatCurrency((income-stats.totalMinor)/100)}</b> · {percentage(income-stats.totalMinor,income)}</p>}
+  <p className="text-xs text-slate-500">Based on active Revenue Expense entries. Capital purchases, loans, investments and other allocations are excluded; the remainder is not confirmed savings.{pending>0?` ${pending} imported rows still await review this month.`:''}</p>
+  <details className="border-t dark:border-slate-700 pt-3"><summary className="cursor-pointer font-medium">This week · {formatCurrency(stats.weeklyMinor/100)}</summary><div className="space-y-2 mt-3 text-xs"><p>{stats.weekStart}–{today} · {stats.weeklyCount} expenses</p><p>Same elapsed days last week: {formatCurrency(stats.previousMinor/100)}. Change: {formatCurrency((stats.weeklyMinor-stats.previousMinor)/100)}{stats.previousMinor?` (${percentage(stats.weeklyMinor-stats.previousMinor,stats.previousMinor)})`:''}.</p><p className="text-slate-500">Frequent vendors / descriptions</p>{stats.vendors.map(([vendor,v])=><p key={vendor}>{vendor} · {v.count} payments · {formatCurrency(v.amountMinor/100)}</p>)}<p>Review unposted statement rows before drawing conclusions about spending changes. Weekly income is not estimated from monthly income.</p></div></details>
+ </section>;
+}

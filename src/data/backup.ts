@@ -2,13 +2,16 @@ import type { AppData, Transaction } from './types';
 import { migrateData } from './model';
 import { normalizeTransactionType } from './types';
 import {validateAlerts} from './alerts';
+import {validateStatementRows,mergeStatementRows} from './statements';
 export function mergeBackup(current:AppData, text:string):AppData {
   const parsed=JSON.parse(text); const source=parsed.data || parsed;
   if (parsed.backupFormatVersion && parsed.backupFormatVersion>4)throw new Error('This backup was made by a newer app version.');
   if (!source || !Array.isArray(source.transactions))throw new Error('A backup must contain a transactions array.');
   if(source.bankAlerts!==undefined)validateAlerts(source.bankAlerts);
+  if(source.statementRows!==undefined)validateStatementRows(source.statementRows);
   const arrayKeys=['transactions','receivables','repayments','recurring','quickExpenses','frequentTransactions','quickAmounts','categories','accounts','paymentModes','people','capexPurchasedFrom','toGharPaymentFor','incomeTypes','investmentTypes','customFields','formFields','recurringFormFields','rules','actionLog','masters','suppressedPatterns','skippedOccurrences','deactivatedAccounts','deactivatedPaymentModes','deactivatedCategories','deactivatedPeople'];
   arrayKeys.push('bankAlerts');
+  arrayKeys.push('statementBatches');
   for(const key of arrayKeys) if(source[key]!==undefined && !Array.isArray(source[key]))throw new Error(`Invalid ${key} in backup.`);
   const ids=new Set<string>();
   for(const t of source.transactions){
@@ -32,5 +35,8 @@ export function mergeBackup(current:AppData, text:string):AppData {
   }
   result.sourceMappings={...incoming.sourceMappings,...current.sourceMappings};
   result.paymentModeSources={...incoming.paymentModeSources,...current.paymentModeSources};
+  result.statementRows=mergeStatementRows(current.statementRows||[],source.statementRows||[]);
+  result.importHabits=current.importHabits||source.importHabits;
+  result.monthlyIncomeMinor={...incoming.monthlyIncomeMinor,...current.monthlyIncomeMinor};
   return migrateData(result);
 }

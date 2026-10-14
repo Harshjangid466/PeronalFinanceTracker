@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, lazy, Suspense } from 'react';
 import { useApp } from '@/context/AppContext';
 import { isPersonalExpense, CORE_TRANSACTION_TYPES, normalizeTransactionType } from '@/data/types';
 import type { Transaction, TransactionType } from '@/data/types';
@@ -9,10 +9,15 @@ import {searchableText} from '@/data/model';
 import {ExportReport,ImportExpenses} from '@/components/ReportTools';
 import { TransactionForm } from '@/components/TransactionForm';
 import {AlertInbox} from '@/components/AlertInbox';
+const StatementWorkspace=lazy(()=>import('@/components/StatementWorkspace').then(m=>({default:m.StatementWorkspace})));
 
 export function TransactionsScreen() {
   const { data, deleteTransaction, deletedTransactions, restoreTransaction } = useApp();
+  const [visibleCount,setVisibleCount]=useState(100);
   const [showDeleted,setShowDeleted]=useState(false);
+  const [showStatements,setShowStatements]=useState(false);
+  const [showTools,setShowTools]=useState(false);
+  const [selected,setSelected]=useState<Transaction|null>(null);
   const [showAlerts,setShowAlerts]=useState(false);
   const [showExport,setShowExport]=useState(false);
   const [showImport,setShowImport]=useState(false);
@@ -55,9 +60,10 @@ export function TransactionsScreen() {
       if (filters.dateTo && t.date > filters.dateTo) return false;
 
       return true;
-    });
-  }, [data.transactions, search, filters]);
+    }).sort((a,b)=>b.date.localeCompare(a.date)||b.createdAt-a.createdAt||a.id.localeCompare(b.id));
+  }, [data.transactions, data.recurring, search, filters]);
 
+  useEffect(()=>setVisibleCount(100),[search,filters]);
   const activeFilterCount = Object.values(filters).filter(Boolean).length;
 
   function clearFilters() {
@@ -79,7 +85,8 @@ export function TransactionsScreen() {
   }
 
   function handlePrint() {
-    window.print();
+    setVisibleCount(filtered.length);
+    requestAnimationFrame(()=>requestAnimationFrame(()=>window.print()));
   }
 
   function confirmDelete(id: string) {
@@ -88,11 +95,11 @@ export function TransactionsScreen() {
   }
 
   const totalFilteredAmount = useMemo(() => {
-    return filtered.reduce((sum, t) => sum + t.amount, 0);
+    return filtered.reduce((sum, t) => sum + t.amountMinor, 0)/100;
   }, [filtered]);
 
   return (
-    <div className="px-4 pt-6 pb-28 max-w-md mx-auto print:max-w-none print:p-0">
+    <div className="px-4 pt-6 pb-28 max-w-3xl mx-auto print:max-w-none print:p-0">
       <div className="flex items-center justify-between mb-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Transactions</h1>
@@ -101,23 +108,7 @@ export function TransactionsScreen() {
           </p>
         </div>
 
-        {/* Export / Print Actions (Section Y) */}
-        <div className="flex items-center gap-1.5 print:hidden">
-          <button
-            onClick={handleExportCSV}
-            title="Export CSV"
-            className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-cyan-600 transition-colors"
-          >
-            <Download size={18} />
-          </button>
-          <button
-            onClick={handlePrint}
-            title="Print Report"
-            className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:text-cyan-600 transition-colors"
-          >
-            <Printer size={18} />
-          </button>
-        </div>
+        <button aria-label="Transaction tools" onClick={()=>setShowTools(true)} className="px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-sm print:hidden">Tools</button>
       </div>
 
       {/* Universal Search (Section Q & AB) */}
@@ -128,7 +119,7 @@ export function TransactionsScreen() {
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search all fields, amounts, remarks, custom..."
+            placeholder="Search transactions"
             className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-cyan-500 text-sm"
           />
           {search && (
@@ -141,6 +132,7 @@ export function TransactionsScreen() {
           )}
         </div>
         <button
+          aria-label="Filter transactions"
           onClick={() => setShowFilters(true)}
           className="relative px-3 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 active:scale-95 transition-transform"
         >
@@ -182,109 +174,34 @@ export function TransactionsScreen() {
         </div>
       )}
 
-      <div className="flex flex-wrap gap-2 mb-3 text-xs"><button className="px-3 py-2 rounded-xl bg-cyan-600 text-white" onClick={()=>setShowImport(true)}>Upload expenses</button><button className="px-3 py-2 rounded-xl bg-slate-200 dark:bg-slate-700" onClick={()=>setShowDeleted(true)}>Deleted Transactions ({deletedTransactions.length})</button><button className="px-3 py-2 rounded-xl bg-slate-200 dark:bg-slate-700" onClick={()=>setShowExport(true)}>Reports / Export</button></div>
-      <button className="w-full mb-3 p-3 rounded-xl bg-cyan-600 text-white font-semibold" onClick={()=>setShowAlerts(true)}>Check bank messages / Alert inbox</button>
+      <button className="w-full mb-4 p-3 rounded-xl bg-cyan-600 text-white font-semibold print:hidden" onClick={()=>setShowStatements(true)}>Import statements & review</button>
+      <Sheet wide open={showStatements} onClose={()=>setShowStatements(false)} title="Statements & reconciliation"><Suspense fallback={<p>Opening statement review…</p>}><StatementWorkspace /></Suspense></Sheet>
+      <Sheet open={showTools} onClose={()=>setShowTools(false)} title="Transaction tools"><div className="grid gap-3">
+        <button className="p-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-left" onClick={()=>{setShowTools(false);setShowImport(true);}}>Upload expense template</button>
+        <button className="p-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-left" onClick={()=>{setShowTools(false);setShowExport(true);}}>Reports & export</button>
+        <button className="p-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-left" onClick={()=>{setShowTools(false);setShowAlerts(true);}}>Manual bank-message inbox</button>
+        <button className="p-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-left" onClick={()=>{setShowTools(false);setShowDeleted(true);}}>Deleted entries ({deletedTransactions.length})</button>
+        <button className="p-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-left" onClick={handlePrint}>Print filtered transactions</button>
+      </div></Sheet>
       <Sheet open={showAlerts} onClose={()=>setShowAlerts(false)} title="Bank messages · Review before posting"><AlertInbox /></Sheet>
       <Sheet open={showExport} onClose={()=>setShowExport(false)} title="Reports & Export"><ExportReport /></Sheet>
       <Sheet open={showImport} onClose={()=>setShowImport(false)} title="Upload Expenses"><ImportExpenses /></Sheet>
-      <Sheet open={showDeleted} onClose={()=>setShowDeleted(false)} title="Deleted Transactions">{deletedTransactions.length===0?<p>No deleted transactions.</p>:deletedTransactions.map(t=><div key={t.id} className="border p-3 rounded-xl mb-2 text-xs"><b>{t.heading||t.type} · {formatCurrency(t.amount)}</b><p>{t.date} · {t.type} · {t.majorCategory} · {t.person}</p><p>Deleted: {t.deletedAt?new Date(t.deletedAt).toLocaleString('en-IN'):'Unknown'}</p><button className="bg-cyan-600 text-white rounded-xl p-2 mt-2" onClick={()=>restoreTransaction(t.id)}>Restore</button></div>)}</Sheet>
-      {/* Transaction List */}
-      {filtered.length === 0 ? (
-        <p className="text-sm text-slate-400 dark:text-slate-500 text-center py-12">
-          {data.transactions.length === 0 ? 'No transactions yet.' : 'No matching transactions found.'}
-        </p>
-      ) : (
-        <div className="space-y-2">
-          {filtered.map((t) => {
-            const normType = normalizeTransactionType(t.type);
-            const isExp = normType === 'Revenue Expense';
-            const isLent = normType === 'Lent';
-            const isRec = normType === 'Lent Recovered';
-            const isInc = normType === 'Income Misc';
-
-            return (
-              <div
-                key={t.id}
-                className="flex items-start justify-between bg-white dark:bg-slate-800 rounded-2xl p-3 border border-slate-100 dark:border-slate-700 hover:border-cyan-500 transition-colors group"
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <span
-                      className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
-                        isExp
-                          ? 'bg-rose-50 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300'
-                          : isLent
-                          ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300'
-                          : isRec
-                          ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300'
-                          : isInc
-                          ? 'bg-teal-50 text-teal-700 dark:bg-teal-950/50 dark:text-teal-300'
-                          : 'bg-purple-50 text-purple-700 dark:bg-purple-950/50 dark:text-purple-300'
-                      }`}
-                    >
-                      {t.type}
-                    </span>
-                    <p className="text-xs font-bold text-slate-800 dark:text-slate-200 break-words">
-                      {t.heading || t.majorCategory || t.type}
-                      {t.subCategory ? ` · ${t.subCategory}` : ''}
-                      {t.person ? ` · ${t.person}` : ''}
-                      {t.purchasedFrom ? ` · ${t.purchasedFrom}` : ''}
-                      {t.paymentFor ? ` · ${t.paymentFor}` : ''}
-                      {t.incomeType ? ` · ${t.incomeType}` : ''}
-                      {t.investmentType ? ` · ${t.investmentType}` : ''}
-                    </p>
-                  </div>
-
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-                    {formatDate(t.date)}
-                    {t.account ? ` · ${t.account}` : ''}
-                    {t.paymentMode ? ` · ${t.paymentMode}` : ''}
-                  </p>
-
-                  {t.remarks && (
-                    <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5 whitespace-pre-wrap break-words">
-                      {t.remarks}
-                    </p>
-                  )}
-                </div>
-
-                <div className="flex flex-col items-end shrink-0 ml-3">
-                  <span
-                    className={`text-sm font-extrabold ${
-                      isExp
-                        ? 'text-rose-600 dark:text-rose-400'
-                        : isInc || isRec
-                        ? 'text-emerald-600 dark:text-emerald-400'
-                        : 'text-slate-800 dark:text-slate-200'
-                    }`}
-                  >
-                    {isExp ? '-' : isInc || isRec ? '+' : ''}
-                    {formatCurrency(t.amount)}
-                  </span>
-
-                  {/* EDIT & DELETE ACTIONS (Section O) */}
-                  <div className="flex items-center gap-1 mt-1 print:hidden">
-                    <button
-                      onClick={() => setEditingTransaction(t)}
-                      className="p-1 text-slate-400 hover:text-cyan-600 transition-colors"
-                      title="Edit"
-                    >
-                      <Edit2 size={15} />
-                    </button>
-                    <button
-                      onClick={() => setDeleteConfirmId(t.id)}
-                      className="p-1 text-slate-400 hover:text-red-500 transition-colors"
-                      title="Delete"
-                    >
-                      <Trash2 size={15} />
-                    </button>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
+      <Sheet open={showDeleted} onClose={()=>setShowDeleted(false)} title="Deleted Transactions">{deletedTransactions.length===0?<p>No deleted transactions.</p>:[...deletedTransactions].sort((a,b)=>b.date.localeCompare(a.date)||b.createdAt-a.createdAt).map(t=><div key={t.id} className="border p-3 rounded-xl mb-2 text-xs"><b>{t.heading||t.type} · {formatCurrency(t.amount)}</b><p>{t.date} · {t.type} · {t.majorCategory} · {t.person}</p><p>Deleted: {t.deletedAt?new Date(t.deletedAt).toLocaleString('en-IN'):'Unknown'}</p><button className="bg-cyan-600 text-white rounded-xl p-2 mt-2" onClick={()=>restoreTransaction(t.id)}>Restore</button></div>)}</Sheet>
+      {filtered.length===0?<p className="text-sm text-slate-500 text-center py-12">{data.transactions.length?'No matching transactions.':'No transactions yet.'}</p>:<div>
+        {filtered.slice(0,visibleCount).map((t,index)=>{
+          const credit=['Income Misc','Lent Recovered'].includes(t.type);
+          const newDate=index===0||filtered[index-1].date!==t.date;
+          return <div key={t.id}>
+            {newDate&&<h2 className="text-xs font-bold text-slate-500 mt-5 mb-2">{formatDate(t.date)}</h2>}
+            <button onClick={()=>setSelected(t)} className="w-full text-left flex items-center justify-between gap-3 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 p-3 hover:bg-slate-50 dark:hover:bg-slate-800">
+              <div className="min-w-0"><p className="font-semibold text-sm truncate text-slate-900 dark:text-slate-100">{t.heading||t.person||t.majorCategory||t.type}</p><p className="text-xs text-slate-500 truncate">{[t.majorCategory,t.subCategory,t.account].filter(Boolean).join(' · ')}</p></div>
+              <div className="shrink-0 text-right"><p className={credit?'font-bold text-emerald-600':'font-bold text-slate-900 dark:text-slate-100'}>{credit?'+':'−'}{formatCurrency(t.amount)}</p><p className="text-[10px] text-slate-500">{t.type}</p></div>
+            </button>
+          </div>;
+        })}
+      </div>}
+      {filtered.length>visibleCount&&<button className="w-full mt-4 rounded-xl p-3 bg-slate-100 dark:bg-slate-800 text-sm print:hidden" onClick={()=>setVisibleCount(visibleCount+100)}>Show more ({visibleCount} of {filtered.length})</button>}
+      <Sheet open={!!selected} onClose={()=>setSelected(null)} title="Transaction details">{selected&&<div className="space-y-3 text-sm"><b>{formatCurrency(selected.amount)} · {selected.type}</b><dl className="space-y-2">{Object.entries(selected).filter(([k,v])=>v!==undefined&&v!==''&&['date','heading','majorCategory','subCategory','account','paymentMode','person','purchasedFrom','paymentFor','incomeType','investmentType','remarks','customFields','statementReferences'].includes(k)).map(([k,v])=><div key={k}><dt className="text-xs text-slate-500">{({date:'Date',heading:'Description',majorCategory:'Category',subCategory:'Subcategory',account:'Account',paymentMode:'Payment mode',person:'Person',purchasedFrom:'Purchased from',paymentFor:'Purpose',incomeType:'Income type',investmentType:'Investment type',remarks:'Narration / remarks',customFields:'Custom fields',statementReferences:'Payment references'} as Record<string,string>)[k]||k}</dt><dd className="break-words">{typeof v==='object'?JSON.stringify(v):String(v)}</dd></div>)}</dl><div className="flex gap-3"><button className="rounded-xl bg-cyan-600 text-white px-4 py-2" onClick={()=>{setEditingTransaction(selected);setSelected(null);}}>Edit</button><button className="rounded-xl bg-rose-50 text-rose-700 px-4 py-2" onClick={()=>{setDeleteConfirmId(selected.id);setSelected(null);}}>Delete</button></div></div>}</Sheet>
 
       {/* Filters Sheet */}
       <Sheet open={showFilters} onClose={() => setShowFilters(false)} title="Filter Transactions">

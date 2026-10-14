@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, lazy, Suspense } from 'react';
+const ImportHabitsSettings=lazy(()=>import('@/components/ImportHabitsSettings').then(m=>({default:m.ImportHabitsSettings})));
 import {clearSheetDraft} from '@/components/NavigationGuard';
 import {getTheme, setTheme, type Theme} from '@/data/theme';
 import { useApp } from '@/context/AppContext';
@@ -43,7 +44,7 @@ type SettingsSection =
   | 'incomeTypes'
   | 'investmentTypes'
   | 'backupRestore'
-  | 'sync' | 'rules' | 'mappings' | 'audit' | 'recurring';
+  | 'habits' | 'sync' | 'rules' | 'mappings' | 'audit' | 'recurring';
 
 export function SettingsScreen() {
   const [theme, updateTheme] = useState<Theme>(getTheme);
@@ -134,6 +135,7 @@ export function SettingsScreen() {
     count?: number | string;
     badge?: string;
   }> = [
+    {id:'habits',label:'Statement import habits',icon:Sparkles},
     {id:'rules',label:'Rules & Logic',icon:Sparkles},
     {id:'mappings',label:'Payment Mode → Source mappings',icon:CreditCard},
     {id:'audit',label:'Action Log',icon:FormInput},
@@ -224,6 +226,7 @@ export function SettingsScreen() {
         })}
       </div>
 
+      <Sheet wide open={section==='habits'} onClose={()=>setSection(null)} title="Statement import habits"><Suspense fallback={<p>Opening habits…</p>}><ImportHabitsSettings /></Suspense></Sheet>
       <Sheet open={section==='rules'} onClose={()=>setSection(null)} title="Rules & Logic"><RulesManager /></Sheet>
       <Sheet open={section==='mappings'} onClose={()=>setSection(null)} title="Payment Mode → Source mappings"><MappingManager /></Sheet>
       <Sheet open={section==='audit'} onClose={()=>setSection(null)} title="Action Log"><AuditViewer /></Sheet>

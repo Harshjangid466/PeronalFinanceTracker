@@ -3,7 +3,7 @@ import { stableId } from './model';
 export function auditChanges(before:AppData, after:AppData):AppData {
   const logs:ActionLogRecord[]=[]; const timestamp=Date.now();
   for(const key of Object.keys(after)) {
-    if(['actionLog','schemaVersion','paymentModeSources','sourceMappings'].includes(key))continue;
+    if(['actionLog','schemaVersion','paymentModeSources','sourceMappings','statementRows','statementBatches'].includes(key))continue;
     const old=(before as unknown as Record<string,unknown>)[key]; const next=(after as unknown as Record<string,unknown>)[key];
     if(JSON.stringify(old)===JSON.stringify(next))continue;
     if(Array.isArray(old) && Array.isArray(next) && [...old,...next].every(v=>v && typeof v==='object' && 'id' in v)) {
