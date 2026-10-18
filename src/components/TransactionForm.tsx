@@ -258,6 +258,7 @@ export function TransactionForm({
 
     const amt = parseFloat(amount) || 0;
     const txnPayload: Partial<Transaction> & { amount: number; type: TransactionType } = {
+      ...(!isEdit&&prefill?.entrySource?{entrySource:prefill.entrySource}:{}),
       type,
       amount: amt,
       date,

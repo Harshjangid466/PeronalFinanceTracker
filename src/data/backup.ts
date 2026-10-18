@@ -24,6 +24,8 @@ export function mergeBackup(current:AppData, text:string):AppData {
   }
   const incoming=migrateData({...structuredClone(current),...source,masters:source.masters,sourceMappings:source.sourceMappings,transactions:source.transactions.map((t:Transaction)=>({...t,type:normalizeTransactionType(t.type),customFields:t.customFields || {},status:t.status || 'active'}))});
   const result=structuredClone(current) as AppData & Record<string,unknown>;
+  result.permanentlyDeletedTransactionIds=[...new Set([...(current.permanentlyDeletedTransactionIds||[]),...(incoming.permanentlyDeletedTransactionIds||[])])];
+  result.removedStatementBatchIds=[...new Set([...(current.removedStatementBatchIds||[]),...(incoming.removedStatementBatchIds||[])])];
   for(const key of arrayKeys){
     const old=(current as unknown as Record<string,unknown[]>)[key] || []; const next=(incoming as unknown as Record<string,unknown[]>)[key] || [];
     const merged=new Map<string,unknown>();

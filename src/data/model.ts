@@ -1,6 +1,7 @@
 import type { AppData, Transaction, RuleDefinition, CustomFieldDefinition } from './types';
 import {validateAlerts} from './alerts';
 import {validateStatementRows,validateHabits,validateStatementBatches} from './statements';
+import {applyRemovalTombstones,validateEntryMetadata} from './entryManagement';
 
 export type MasterKind = 'source' | 'paymentMode' | 'category' | 'subCategory' | 'person' | 'merchant' | 'purpose' | 'incomeType' | 'investmentType' | 'dropdownOption';
 export interface MasterItem { id: string; kind: MasterKind; name: string; active: boolean; order: number; parentId?: string; updatedAt: number }
@@ -22,7 +23,8 @@ export const masterFields: Record<string,MasterKind> = {account:'source',payment
 export const idFields: Record<string,string> = {account:'sourceId',paymentMode:'paymentModeId',majorCategory:'majorCategoryId',subCategory:'subCategoryId',person:'personId',purchasedFrom:'merchantId',paymentFor:'purposeId',incomeType:'incomeTypeId',investmentType:'investmentTypeId'};
 export const listFields: Record<string, MasterKind> = {accounts:'source',paymentModes:'paymentMode',people:'person',capexPurchasedFrom:'merchant',toGharPaymentFor:'purpose',incomeTypes:'incomeType',investmentTypes:'investmentType'};
 export function migrateData(input: AppData): AppData {
-  const data = structuredClone(input);
+  validateEntryMetadata(input);
+  const data = applyRemovalTombstones(structuredClone(input));
   if(data.monthlyIncomeMinor&&(typeof data.monthlyIncomeMinor!=='object'||Array.isArray(data.monthlyIncomeMinor)||Object.entries(data.monthlyIncomeMinor).some(([month,value])=>!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)||!Number.isSafeInteger(value)||value<0)))throw Error('Invalid monthly income figures');
   data.statementRows ||= []; data.statementBatches ||= []; validateStatementRows(data.statementRows);
   validateStatementBatches(data.statementBatches);

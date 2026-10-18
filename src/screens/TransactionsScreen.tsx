@@ -9,10 +9,12 @@ import {searchableText} from '@/data/model';
 import {ExportReport,ImportExpenses} from '@/components/ReportTools';
 import { TransactionForm } from '@/components/TransactionForm';
 import {AlertInbox} from '@/components/AlertInbox';
+import {TransactionDetails} from '@/components/TransactionDetails';
+import {entrySource,entrySourceLabels} from '@/data/entryManagement';
 const StatementWorkspace=lazy(()=>import('@/components/StatementWorkspace').then(m=>({default:m.StatementWorkspace})));
 
 export function TransactionsScreen({active=true}:{active?:boolean}) {
-  const { data, deleteTransaction, deletedTransactions, restoreTransaction } = useApp();
+  const { data,allData, deleteTransaction, deletedTransactions, restoreTransaction,permanentlyDeleteTransaction } = useApp();
   const [visibleCount,setVisibleCount]=useState(100);
   const [showDeleted,setShowDeleted]=useState(false);
   const [view,setView]=useState<'history'|'imports'>('history');
@@ -28,6 +30,7 @@ export function TransactionsScreen({active=true}:{active?:boolean}) {
   const [showFilters, setShowFilters] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [purgeId,setPurgeId]=useState<string|null>(null),[purgeError,setPurgeError]=useState('');
 
   const [filters, setFilters] = useState({
     type: '',
@@ -38,6 +41,7 @@ export function TransactionsScreen({active=true}:{active?:boolean}) {
     paymentMode: '',
     dateFrom: '',
     dateTo: '',
+    origin:'',
   });
 
   // Universal Search across ALL fields + Custom fields (Section Q & AB)
@@ -61,10 +65,11 @@ export function TransactionsScreen({active=true}:{active?:boolean}) {
       if (filters.paymentMode && t.paymentMode !== filters.paymentMode) return false;
       if (filters.dateFrom && t.date < filters.dateFrom) return false;
       if (filters.dateTo && t.date > filters.dateTo) return false;
+      if (filters.origin && entrySource(t,allData).kind!==filters.origin) return false;
 
       return true;
     }).sort((a,b)=>b.date.localeCompare(a.date)||b.createdAt-a.createdAt||a.id.localeCompare(b.id));
-  }, [data.transactions, data.recurring, search, filters]);
+  }, [data.transactions, data.recurring,allData, search, filters]);
 
   useEffect(()=>setVisibleCount(100),[search,filters]);
   const activeFilterCount = Object.values(filters).filter(Boolean).length;
@@ -79,6 +84,7 @@ export function TransactionsScreen({active=true}:{active?:boolean}) {
       paymentMode: '',
       dateFrom: '',
       dateTo: '',
+      origin:'',
     });
   }
 
@@ -151,6 +157,7 @@ export function TransactionsScreen({active=true}:{active?:boolean}) {
         </button>
       </div>
 
+      <label className="block text-xs text-slate-500 dark:text-slate-400 mb-3">Entry origin<select aria-label="Entry origin" value={filters.origin} onChange={e=>setFilters({...filters,origin:e.target.value})} className="block mt-1 w-full rounded-xl p-2 bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100"><option value="">All origins</option>{Object.entries(entrySourceLabels).map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></label>
       {/* Active filter badges */}
       {activeFilterCount > 0 && (
         <div className="flex items-center gap-1.5 flex-wrap mb-3 print:hidden">
@@ -190,7 +197,7 @@ export function TransactionsScreen({active=true}:{active?:boolean}) {
       <Sheet open={historyActive&&showAlerts} onClose={()=>setShowAlerts(false)} title="Bank messages · Review before posting"><AlertInbox /></Sheet>
       <Sheet open={historyActive&&showExport} onClose={()=>setShowExport(false)} title="Reports & Export"><ExportReport /></Sheet>
       <Sheet open={historyActive&&showImport} onClose={()=>setShowImport(false)} title="Upload Expenses"><ImportExpenses /></Sheet>
-      <Sheet open={historyActive&&showDeleted} onClose={()=>setShowDeleted(false)} title="Deleted Transactions">{deletedTransactions.length===0?<p>No deleted transactions.</p>:[...deletedTransactions].sort((a,b)=>b.date.localeCompare(a.date)||b.createdAt-a.createdAt).map(t=><div key={t.id} className="border p-3 rounded-xl mb-2 text-xs"><b>{t.heading||t.type} · {formatCurrency(t.amount)}</b><p>{t.date} · {t.type} · {t.majorCategory} · {t.person}</p><p>Deleted: {t.deletedAt?new Date(t.deletedAt).toLocaleString('en-IN'):'Unknown'}</p><button className="bg-cyan-600 text-white rounded-xl p-2 mt-2" onClick={()=>restoreTransaction(t.id)}>Restore</button></div>)}</Sheet>
+      <Sheet open={historyActive&&showDeleted} onClose={()=>setShowDeleted(false)} title="Deleted Transactions">{deletedTransactions.length===0?<p>No deleted transactions.</p>:[...deletedTransactions].sort((a,b)=>b.date.localeCompare(a.date)||b.createdAt-a.createdAt).map(t=><div key={t.id} className="border p-3 rounded-xl mb-2 text-xs"><b>{t.heading||t.type} · {formatCurrency(t.amount)}</b><p>{t.date} · {t.type} · {t.majorCategory} · {t.person}</p><p>{entrySourceLabels[entrySource(t,allData).kind]}</p><p>Deleted: {t.deletedAt?new Date(t.deletedAt).toLocaleString('en-IN'):'Unknown'}</p><div className="flex flex-wrap gap-3 mt-2"><button className="text-cyan-600 underline" aria-label={`Review deleted entry ${t.id}`} onClick={()=>setSelected(t)}>Review</button><button className="bg-cyan-600 text-white rounded-xl p-2" onClick={()=>restoreTransaction(t.id)}>Restore</button><button className="text-rose-600 underline" aria-label={`Permanently delete entry ${t.id}`} onClick={()=>{setPurgeId(t.id);setPurgeError('');}}>Delete permanently</button></div></div>)}</Sheet>
       {filtered.length===0?<p className="text-sm text-slate-500 text-center py-12">{data.transactions.length?'No matching transactions.':'No transactions yet.'}</p>:<div>
         {filtered.slice(0,visibleCount).map((t,index)=>{
           const credit=['Income Misc','Lent Recovered'].includes(t.type);
@@ -205,7 +212,7 @@ export function TransactionsScreen({active=true}:{active?:boolean}) {
         })}
       </div>}
       {filtered.length>visibleCount&&<button className="w-full mt-4 rounded-xl p-3 bg-slate-100 dark:bg-slate-800 text-sm print:hidden" onClick={()=>setVisibleCount(visibleCount+100)}>Show more ({visibleCount} of {filtered.length})</button>}
-      <Sheet open={historyActive&&!!selected} onClose={()=>setSelected(null)} title="Transaction details">{selected&&<div className="space-y-3 text-sm"><b>{formatCurrency(selected.amount)} · {selected.type}</b><dl className="space-y-2">{Object.entries(selected).filter(([k,v])=>v!==undefined&&v!==''&&['date','heading','majorCategory','subCategory','account','paymentMode','person','purchasedFrom','paymentFor','incomeType','investmentType','remarks','customFields','statementReferences'].includes(k)).map(([k,v])=><div key={k}><dt className="text-xs text-slate-500">{({date:'Date',heading:'Description',majorCategory:'Category',subCategory:'Subcategory',account:'Account',paymentMode:'Payment mode',person:'Person',purchasedFrom:'Purchased from',paymentFor:'Purpose',incomeType:'Income type',investmentType:'Investment type',remarks:'Narration / remarks',customFields:'Custom fields',statementReferences:'Payment references'} as Record<string,string>)[k]||k}</dt><dd className="break-words">{typeof v==='object'?JSON.stringify(v):String(v)}</dd></div>)}</dl><div className="flex gap-3"><button className="rounded-xl bg-cyan-600 text-white px-4 py-2" onClick={()=>{setEditingTransaction(selected);setSelected(null);}}>Edit</button><button className="rounded-xl bg-rose-50 text-rose-700 px-4 py-2" onClick={()=>{setDeleteConfirmId(selected.id);setSelected(null);}}>Delete</button></div></div>}</Sheet>
+      <Sheet open={historyActive&&!!selected} onClose={()=>setSelected(null)} title="Transaction details">{selected&&<TransactionDetails transaction={selected} onEdit={()=>{setEditingTransaction(selected);setSelected(null);}} onDelete={()=>{setDeleteConfirmId(selected.id);setSelected(null);}} onRestore={()=>{restoreTransaction(selected.id);setSelected(null);}} onPurge={()=>{setPurgeId(selected.id);setPurgeError('');}}/>}</Sheet>
 
       {/* Filters Sheet */}
       <Sheet open={historyActive&&showFilters} onClose={() => setShowFilters(false)} title="Filter Transactions">
@@ -358,6 +365,9 @@ export function TransactionsScreen({active=true}:{active?:boolean}) {
         )}
       </Sheet>
 
+      <Sheet open={historyActive&&!!purgeId} onClose={()=>setPurgeId(null)} title="Permanently delete entry">
+        <div className="space-y-4"><p>Remove this deleted transaction from the ledger permanently? It cannot be restored from this app. Audit history and statement evidence are retained; old backups cannot automatically bring this entry back.</p><p className="font-semibold">{allData.transactions.find(t=>t.id===purgeId)?.heading||allData.transactions.find(t=>t.id===purgeId)?.type}</p>{purgeError&&<p role="alert" className="text-rose-600">{purgeError}</p>}<button className="rounded-xl bg-rose-600 text-white px-4 py-3" onClick={()=>{try{if(purgeId)permanentlyDeleteTransaction(purgeId);if(selected?.id===purgeId)setSelected(null);setPurgeId(null);}catch(e){setPurgeError(e instanceof Error?e.message:String(e));}}}>Confirm permanent deletion</button><button className="ml-3 text-cyan-600" onClick={()=>setPurgeId(null)}>Cancel</button></div>
+      </Sheet>
       {/* DELETE CONFIRMATION MODAL (Section O) */}
       <Sheet
         open={historyActive&&Boolean(deleteConfirmId)}
