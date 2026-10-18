@@ -25,13 +25,22 @@ function lines(items:PdfTextItem[]):string[]{
 }
 export function parsePaytmPages(pages:PdfTextPage[],batchId:string):StatementRow[]{
  const flat=pages.map(p=>p.items.map(i=>i.str).join(' ')).join(' ');
- if(!/Paytm Statement for/i.test(flat))throw Error('This is not a supported Paytm UPI statement.');
- const period=flat.match(/(\d{2})\s+(JUL|AUG|SEP|OCT|NOV|DEC|JAN|FEB|MAR|APR|MAY|JUN)['’]?\s*(\d{2})\s*-\s*(\d{2})\s+([A-Z]{3})['’]?\s*(\d{2})/i);
- if(!period)throw Error('Could not identify the statement period.');
+ if(!/Paytm\s+Statement\s+for/i.test(flat))throw Error('This is not a supported Paytm UPI statement.');
  const months=['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
- const firstYear=2000+Number(period[3]),lastYear=2000+Number(period[6]);
- const periodStart=`${firstYear}-${String(months.indexOf(period[2].toUpperCase())+1).padStart(2,'0')}-${period[1]}`;
- const periodEnd=`${lastYear}-${String(months.indexOf(period[5].toUpperCase())+1).padStart(2,'0')}-${period[4]}`;
+ // PDF exports vary the date spelling, spacing and dash without changing the selected period.
+ const monthName='(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)';
+ const dateToken=`(?:\\d{4}-\\d{2}-\\d{2}|\\d{1,2}\\s*[/.-]\\s*\\d{1,2}\\s*[/.-]\\s*(?:\\d{4}|\\d{2})|\\d{1,2}\\s*${monthName}\\s*['’]?\\s*(?:\\d{4}|\\d{2}))`;
+ const period=flat.replace(/[\u2010-\u2015\u2212]/g,'-').match(new RegExp(`Paytm\\s+Statement\\s+for\\s*:?\\s*(${dateToken})\\s*(?:-|to)\\s*(${dateToken})(?!\\d)`,'i'));
+ if(!period)throw Error('Could not identify the statement period. The PDF must show a complete start and end date.');
+ const printedDate=(text:string)=>{
+  const named=text.match(/^(\d{1,2})\s*([A-Za-z]+)\s*['’]?\s*(\d{4}|\d{2})$/);
+  if(!named)return dateISO(text.replace(/\s+/g,''));
+  const year=named[3].length===2?'20'+named[3]:named[3];
+  return dateISO(`${year}-${String(months.indexOf(named[2].slice(0,3).toUpperCase())+1).padStart(2,'0')}-${named[1].padStart(2,'0')}`);
+ };
+ const periodStart=printedDate(period[1]),periodEnd=printedDate(period[2]);
+ if(periodStart>periodEnd)throw Error('The printed statement start date is after its end date.');
+ const firstYear=Number(periodStart.slice(0,4)),lastYear=Number(periodEnd.slice(0,4));
  const rows:StatementRow[]=[];
  for(const [pageIndex,p] of pages.entries()){
   const dateItems=p.items.filter(i=>i.x<p.width*.145);const dateLines=lines(dateItems);
@@ -50,7 +59,7 @@ export function parsePaytmPages(pages:PdfTextPage[],batchId:string):StatementRow
    const accountMatch=accountText.match(/(HDFC Bank|State Bank Of India|Bank Of Baroda|Other UPI Apps?)(?:\s*-\s*(\d+))?/i);if(!accountMatch)throw Error(`Unrecognised source account in Paytm statement (${a.day} ${a.month}: ${accountText}).`);
    const account=accountMatch[1].startsWith('Other UPI')?accountText:accountMatch[1]+(accountMatch[2]?' - '+accountMatch[2]:'');
    const time=col(0,.145).match(/(\d{1,2}):(\d{2})\s*([AP]M)/i);const hh=time?(Number(time[1])%12+(time[3].toUpperCase()==='PM'?12:0)):undefined;
-   const month=months.indexOf(a.month.toUpperCase())+1;const year=firstYear!==lastYear&&month<=months.indexOf(period[5].toUpperCase())+1?lastYear:firstYear;
+   const month=months.indexOf(a.month.toUpperCase())+1;const year=firstYear!==lastYear&&month<=Number(periodEnd.slice(5,7))?lastYear:firstYear;
    const date=dateISO(`${year}-${String(month).padStart(2,'0')}-${a.day}`);if(date<periodStart||date>periodEnd)throw Error('Transaction outside statement period.');
    const amountMinor=moneyMinor(amount[2]);if(amountMinor<=0)throw Error('Zero payment row needs manual review.');
    const vendor=detail.split(/UPI ID:|UPI Ref No:/i)[0].replace(/\s+/g,' ').replace(/^(Paid to|Money sent to|Money received from|Received from)\s*/i,'').trim();
