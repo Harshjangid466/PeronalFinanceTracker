@@ -67,7 +67,7 @@ export function rowState(row:StatementRow,txns:Transaction[]):StatementRow{
 export function saveStatementPosting(txns:Transaction[],row:StatementRow,proposed:Transaction):{transactions:Transaction[];saved:Transaction}{
  const linked=txns.find(t=>t.id===row.transactionId&&t.status==='active');
  if(txns.some(t=>t.status==='active'&&t.id!==linked?.id&&row.reference&&t.account===row.account&&t.statementReferences?.includes(row.reference)))throw Error('An entry with this payment reference already exists. Match or edit that entry.');
- const saved=linked?{...linked,...proposed,id:linked.id,createdAt:linked.createdAt,statementReferences:[...new Set([...(linked.statementReferences||[]),...(proposed.statementReferences||[])])]}:proposed;
+ const saved=linked?{...linked,...proposed,id:linked.id,createdAt:linked.createdAt,entrySource:linked.entrySource||{kind:'legacy' as const},statementReferences:[...new Set([...(linked.statementReferences||[]),...(proposed.statementReferences||[])])]}:proposed;
  if(linked){const identifiers:Record<string,string>={account:'sourceId',paymentMode:'paymentModeId',majorCategory:'majorCategoryId',subCategory:'subCategoryId',person:'personId',purchasedFrom:'merchantId',paymentFor:'purposeId',incomeType:'incomeTypeId',investmentType:'investmentTypeId'};for(const [field,id] of Object.entries(identifiers))if(linked[field as keyof Transaction]!==saved[field as keyof Transaction])delete (saved as unknown as Record<string,unknown>)[id];}
  if(linked&&linked.majorCategory!==saved.majorCategory)delete saved.subCategoryId;
  return {saved,transactions:linked?txns.map(t=>t.id===linked.id?saved:t):[saved,...txns]};

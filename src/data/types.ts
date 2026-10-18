@@ -65,6 +65,7 @@ export interface FinancialEffect {
 export function deriveFinancialEffect(type: TransactionType, amount: number): FinancialEffect { return financialEffect(normalizeTransactionType(type),Math.round(amount*100)); }
 
 export interface Transaction {
+  entrySource?:{kind:'manual'|'paytm-pdf'|'bank-pdf'|'excel-csv'|'recurring'|'bank-alert'|'legacy';batchId?:string;fileName?:string};
   statementReferences?:string[];
   id: string;
   customFieldIds?:Record<string,string>; customOptionIds?:Record<string,string[]>;
@@ -292,6 +293,8 @@ export interface DependencyCheckResult {
 }
 
 export interface AppData {
+  permanentlyDeletedTransactionIds?:string[];
+  removedStatementBatchIds?:string[];
   monthlyIncomeMinor?:Record<string,number>;
   importHabits?:ImportHabits;
   dismissedHabitSuggestions?:string[];

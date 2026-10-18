@@ -24,6 +24,7 @@ import {classifyImport,pendingRuleMatches,mergeStatementRows,rowState,batchUndoC
 import {defaultImportHabits} from '@/data/approvedHabits';
 import { migrateData, projectMasters, financialEffect, dependencies, idFields, masterFields, patternKey, visibleField, type MasterItem, type MasterKind } from '@/data/model';
 import { auditChanges } from '@/data/audit';
+import {applyRemovalTombstones,statementEntrySource,removeStatementImport,permanentlyDeleteEntry} from '@/data/entryManagement';
 import { mergeBackup } from '@/data/backup';
 import type {BankAlert} from '@/data/alerts';
 import {mergeCaptured} from '@/data/captureProtocol';
@@ -99,11 +100,13 @@ interface AppContextValue {
   allData: AppData;
   deletedTransactions: Transaction[];
   restoreTransaction: (id:string)=>void;
+  removeStatementImport:(id:string,deletePosted:boolean)=>void;
+  permanentlyDeleteTransaction:(id:string)=>void;
   configure: (updates:Partial<AppData>)=>void;
   logAction: (action:string, entity:string, description:string)=>void;
   manageMaster: (item:MasterItem)=>void;
   removeMaster: (id:string)=>void;
-  importTransactions: (rows:Partial<Transaction>[])=>number;
+  importTransactions: (rows:Partial<Transaction>[],fileName?:string)=>number;
   // Transactions
   addTransaction: (t: Partial<Transaction> & { amount: number; type: TransactionType; date?: string }) => Transaction;
   updateTransaction: (id: string, updates: Partial<Transaction>) => Transaction | null;
@@ -187,7 +190,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [allData, setStoredData] = useState<AppData>(() => loadData());
   const [statementReady,setStatementReady]=useState(false);
   const [statementError,setStatementError]=useState('');
-  useEffect(()=>{let cancelled=false;loadStatementArchive().then(archive=>{if(cancelled)return;setStoredData(prev=>({...prev,statementRows:mergeStatementRows(archive.rows,prev.statementRows||[]),statementBatches:[...new Map([...archive.batches,...(prev.statementBatches||[])].map(b=>[b.id,b])).values()]}));setStatementReady(true);}).catch(()=>{if(!cancelled)setStatementError('Statement history could not be opened. Import is disabled; existing financial entries are retained.');});return()=>{cancelled=true;};},[]);
+  useEffect(()=>{let cancelled=false;loadStatementArchive().then(archive=>{if(cancelled)return;setStoredData(prev=>applyRemovalTombstones({...prev,statementRows:mergeStatementRows(archive.rows,prev.statementRows||[]),statementBatches:[...new Map([...archive.batches,...(prev.statementBatches||[])].map(b=>[b.id,b])).values()]}));setStatementReady(true);}).catch(()=>{if(!cancelled)setStatementError('Statement history could not be opened. Import is disabled; existing financial entries are retained.');});return()=>{cancelled=true;};},[]);
   const bankCapture=useBankCapture(alerts=>setStoredData(prev=>auditChanges(prev,migrateData({...prev,bankAlerts:mergeCaptured(prev.bankAlerts||[],alerts)}))));
   const data = useMemo(()=>({...allData,transactions:allData.transactions.filter(t=>t.status==='active')}),[allData]);
   function setData(update: AppData | ((prev:AppData)=>AppData)) {
@@ -197,9 +200,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     });
   }
   function configure(updates:Partial<AppData>) { setData(prev=>({...prev,...updates})); }
-  function statementTransaction(row:StatementRow,details:Partial<Transaction>):Transaction{
+  function statementTransaction(row:StatementRow,details:Partial<Transaction>,batch?:StatementBatch):Transaction{
     const type=details.type||'Revenue Expense',now=Date.now();
-    return {id:uid(),schemaVersion:4,type,amount:row.amountMinor/100,amountMinor:row.amountMinor,currency:'INR',date:row.date,createdAt:now,updatedAt:now,majorCategory:details.majorCategory||'',subCategory:details.subCategory||'',paymentMode:details.paymentMode||'UPI',account:row.account,person:details.person||'',heading:details.heading||row.vendor,remarks:details.remarks??row.note,customFields:details.customFields||{},financialEffect:financialEffect(type,row.amountMinor),status:'active',purchasedFrom:details.purchasedFrom||'',paymentFor:details.paymentFor||'',incomeType:details.incomeType||'',investmentType:details.investmentType||'',statementReferences:row.reference?[row.reference]:[]};
+    return {id:uid(),entrySource:statementEntrySource(row,batch||allData.statementBatches?.find(b=>b.id===row.batchId)),schemaVersion:4,type,amount:row.amountMinor/100,amountMinor:row.amountMinor,currency:'INR',date:row.date,createdAt:now,updatedAt:now,majorCategory:details.majorCategory||'',subCategory:details.subCategory||'',paymentMode:details.paymentMode||'UPI',account:row.account,person:details.person||'',heading:details.heading||row.vendor,remarks:details.remarks??row.note,customFields:details.customFields||{},financialEffect:financialEffect(type,row.amountMinor),status:'active',purchasedFrom:details.purchasedFrom||'',paymentFor:details.paymentFor||'',incomeType:details.incomeType||'',investmentType:details.investmentType||'',statementReferences:row.reference?[row.reference]:[]};
   }
   function undoStatementBatch(id:string){setData(prev=>{const batch=prev.statementBatches?.find(b=>b.id===id);if(!batch)return prev;const ids=new Set(batchUndoCandidates(batch,prev.statementRows||[],prev.transactions));return {...prev,transactions:prev.transactions.map(t=>ids.has(t.id)?{...t,status:'deleted',deletedAt:Date.now(),updatedAt:Date.now()}:t),actionLog:[...prev.actionLog,{id:uid(),timestamp:Date.now(),actionType:'undo',entityType:'statement',entityId:id,description:`Undid ${ids.size} untouched auto-posted entries; retained import review history`}]};});}
   function ensureStatementCategory(prev:AppData,t:Transaction){
@@ -207,13 +210,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const found=prev.categories.find(c=>c.name===t.majorCategory);
     return found?prev.categories.map(c=>c.name===t.majorCategory&&t.subCategory&&!c.subCategories.includes(t.subCategory)?{...c,subCategories:[...c.subCategories,t.subCategory]}:c):[...prev.categories,{name:t.majorCategory,subCategories:t.subCategory?[t.subCategory]:[]}];
   }
-  function applyStatementRules(prev:AppData,rows:StatementRow[],habits:ImportHabits){
+  function applyStatementRules(prev:AppData,rows:StatementRow[],habits:ImportHabits,batch?:StatementBatch){
       const preview=classifyImport(rows,prev,habits,true);let next=prev;
       const imported=preview.filter(p=>!p.existing).map(p=>{
         if(p.exactReference&&p.matches.length===1)return {...p.row,status:'matched' as const,transactionId:p.matches[0].id,reason:'Exact account, reference, date and amount match'};
         if(p.classification.action==='ignore'&&p.row.source==='paytm')return {...p.row,status:'ignored' as const,reason:p.classification.reason};
         if(p.classification.action==='post'&&p.classification.type==='Revenue Expense'&&p.row.source==='paytm'){
-          const t=statementTransaction(p.row,{type:p.classification.type,majorCategory:p.classification.category,subCategory:p.classification.subcategory});
+          const t=statementTransaction(p.row,{type:p.classification.type,majorCategory:p.classification.category,subCategory:p.classification.subcategory},batch);
           next={...next,transactions:[t,...next.transactions],categories:ensureStatementCategory(next,t)};
           return {...p.row,status:'posted' as const,transactionId:t.id,reason:p.classification.reason};
         }
@@ -227,7 +230,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     mergeStatementRows(allData.statementRows||[],rows);
     setData(prev=>{
       mergeStatementRows(prev.statementRows||[],rows);
-      const habits=prev.importHabits||defaultImportHabits(),next=applyStatementRules(prev,rows,habits);
+      const habits=prev.importHabits||defaultImportHabits(),next=applyStatementRules(prev,rows,habits,batch);
       const batches=prev.statementBatches||[];
       return {...next,importHabits:habits,statementBatches:batches.some(b=>b.id===batch.id)?batches:[batch,...batches],actionLog:[...next.actionLog,{id:uid(),timestamp:Date.now(),actionType:'import',entityType:'statement',entityId:batch.id,description:`Imported ${batch.source} statement: ${rows.length} source rows; applied current rules to new and pending rows`}]};
     });
@@ -286,6 +289,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setStoredData(prev=>({...prev,actionLog:[...prev.actionLog,{id:uid(),timestamp:Date.now(),actionType:action,entityType:entity,entityId:entity,description}]}));
   }
   function restoreTransaction(id:string) { setData(prev=>({...prev,transactions:prev.transactions.map(t=>t.id===id?{...t,status:'active',deletedAt:undefined,updatedAt:Date.now()}:t)})); }
+  function removeImport(id:string,deletePosted:boolean){if(!statementReady||statementError)throw Error('Statement history is not ready.');setData(prev=>removeStatementImport(prev,id,deletePosted));}
+  function permanentlyDeleteTransaction(id:string){permanentlyDeleteEntry(allData,id);setData(prev=>prev.transactions.some(t=>t.id===id&&t.status==='deleted')?permanentlyDeleteEntry(prev,id):prev);}
   function manageMaster(item:MasterItem) {
     if(allData.masters?.some(m=>m.id!==item.id&&m.kind===item.kind&&m.parentId===item.parentId&&m.name.toLowerCase()===item.name.toLowerCase()))throw new Error('That name already exists.');
     setData(prev=>{
@@ -318,9 +323,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if(refs.transactions || refs.rules.length || refs.recurring || refs.mappings.length || refs.templates || refs.children)throw new Error('This value is referenced. Deactivate or resolve dependencies first.');
     setData(prev=>projectMasters({...prev,masters:prev.masters?.filter(m=>m.id!==id)}));
   }
-  function importTransactions(rows:Partial<Transaction>[]) {
+  function importTransactions(rows:Partial<Transaction>[],fileName?:string) {
     const now=Date.now();
-    setData(prev=>({...prev,transactions:[...rows.map(row=>({...row,id:uid(),schemaVersion:4,type:row.type!,amount:row.amount!,amountMinor:Math.round(row.amount!*100),currency:'INR' as const,date:row.date!,createdAt:now,updatedAt:now,majorCategory:row.majorCategory||'',subCategory:row.subCategory||'',account:row.account||'',paymentMode:row.paymentMode||'',person:row.person||'',remarks:row.remarks||'',customFields:row.customFields||{},financialEffect:financialEffect(row.type!,Math.round(row.amount!*100)),status:'active' as const})),...prev.transactions]}));
+    setData(prev=>({...prev,transactions:[...rows.map(row=>({...row,id:uid(),entrySource:{kind:'excel-csv' as const,fileName},schemaVersion:4,type:row.type!,amount:row.amount!,amountMinor:Math.round(row.amount!*100),currency:'INR' as const,date:row.date!,createdAt:now,updatedAt:now,majorCategory:row.majorCategory||'',subCategory:row.subCategory||'',account:row.account||'',paymentMode:row.paymentMode||'',person:row.person||'',remarks:row.remarks||'',customFields:row.customFields||{},financialEffect:financialEffect(row.type!,Math.round(row.amount!*100)),status:'active' as const})),...prev.transactions]}));
     logAction('import','transactions',`Imported ${rows.length} transactions`); return rows.length;
   }
 
@@ -362,6 +367,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       person: r.person||'',purchasedFrom:r.purchasedFrom,paymentFor:r.paymentFor,incomeType:r.incomeType,investmentType:r.investmentType,
       remarks: (r.remarks ? r.remarks + ' ' : '') + '(Recurring mandate)',
       recurringTemplateId: r.id,
+      entrySource:{kind:'recurring'},
       recurringOccurrenceDate: r.nextDueDate,
       customFields: r.customFields || {},
       financialEffect: effects,
@@ -399,6 +405,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       schemaVersion: 2,
       type: normType,
       heading: t.heading || '',
+      entrySource:t.entrySource||{kind:'manual'},
       amount,
       amountMinor,
       currency: 'INR',
@@ -1133,7 +1140,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     statementReady,statementError,importStatement,reviewStatement,postPendingStatements,undoStatementBatch,
     bankCapture,
     saveBankAlerts,updateBankAlert,
-    data, allData, deletedTransactions:allData.transactions.filter(t=>t.status==='deleted'),restoreTransaction,configure,logAction,manageMaster,removeMaster,importTransactions,
+    data, allData, deletedTransactions:allData.transactions.filter(t=>t.status==='deleted'),restoreTransaction,removeStatementImport:removeImport,permanentlyDeleteTransaction,configure,logAction,manageMaster,removeMaster,importTransactions,
     addTransaction,
     updateTransaction,
     deleteTransaction,
