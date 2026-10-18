@@ -1,4 +1,4 @@
-import {useEffect,useMemo,useState} from 'react';
+import {useEffect,useMemo,useRef,useState} from 'react';
 import {useApp} from '@/context/AppContext';
 import {classifyImport,pendingRuleMatches,candidates,rowState,classify,clean,batchUndoCandidates,reconciliationControls,reconciliationAdvice,type StatementRow,type StatementBatch,type ImportHabits} from '@/data/statements';
 import {defaultImportHabits} from '@/data/approvedHabits';
@@ -14,6 +14,7 @@ import {readPaytmFile} from '@/data/readStatementFile';
 import {HabitSuggestions} from './HabitSuggestions';
 import {readBankPdf} from '@/data/readBankPdf';
 import {StatementReviewSelect} from './StatementReviewSelect';
+import {StatementImportSummary} from './StatementImportSummary';
 
 export function StatementWorkspace({active=true,onShowHistory}:{active?:boolean;onShowHistory?:()=>void}){
  const {allData:data,statementReady,statementError,importStatement,reviewStatement,postPendingStatements,configure,undoStatementBatch}=useApp();
@@ -34,6 +35,8 @@ export function StatementWorkspace({active=true,onShowHistory}:{active?:boolean;
  const preview=classifyImport(mapped,data,h,true);const ready=preview.filter(p=>!p.existing&&p.classification.action==='post').length;const ignored=preview.filter(p=>!p.existing&&p.classification.action==='ignore').length;const pending=preview.filter(p=>!p.existing&&!p.exactReference&&p.classification.action==='review').length;const matched=preview.filter(p=>!p.existing&&p.exactReference).length;
  const rows=(data.statementRows||[]).map(r=>rowState(r,data.transactions));
  const selectedBatch=data.statementBatches?.find(b=>b.id===batchFilter);
+ const summaryRef=useRef<HTMLDivElement>(null);
+ useEffect(()=>{if(batchFilter)summaryRef.current?.scrollIntoView({block:'start'});},[batchFilter]);
  const inBatch=(r:StatementRow)=>!batchFilter||(selectedBatch?.rowIds?selectedBatch.rowIds.includes(r.id):r.batchId===batchFilter);
  const filtered=rows.filter(r=>inBatch(r)&&(status==='all'||r.status===status)&&(!search||`${r.vendor} ${r.note} ${r.account} ${r.reference}`.toLowerCase().includes(search.toLowerCase()))).sort((a,b)=>b.date.localeCompare(a.date)||(b.time||'').localeCompare(a.time||'')||a.id.localeCompare(b.id));
  const unsettled=rows.filter(r=>r.status==='pending'&&inBatch(r));const debit=unsettled.filter(r=>r.direction==='debit').reduce((s,r)=>s+r.amountMinor,0),credit=unsettled.filter(r=>r.direction==='credit').reduce((s,r)=>s+r.amountMinor,0);
@@ -112,10 +115,11 @@ export function StatementWorkspace({active=true,onShowHistory}:{active?:boolean;
     {source==='paytm'&&Object.keys(accounts).map(a=><label key={a} className="block">{a} → app account<select aria-label={`Map ${a}`} className={inputStyle} value={accounts[a]} onChange={e=>setAccounts({...accounts,[a]:e.target.value})}><option value="">Keep account unknown for review</option>{data.accounts.map(n=><option key={n}>{n}</option>)}</select></label>)}
     {source==='bank'&&<div className="grid sm:grid-cols-2 gap-3"><label>Statement from (full coverage)<input aria-label="Statement period from" type="date" className={inputStyle} value={periodFrom} readOnly={periodChecked} onChange={e=>setPeriodFrom(e.target.value)}/></label><label>Statement to (full coverage)<input aria-label="Statement period to" type="date" className={inputStyle} value={periodTo} readOnly={periodChecked} onChange={e=>setPeriodTo(e.target.value)}/></label><label>Statement opening balance ₹ (optional)<input className={inputStyle} value={opening} readOnly={pdfChecked} onChange={e=>setOpening(e.target.value)}/></label><label>Statement closing balance ₹ (optional)<input className={inputStyle} value={closing} readOnly={pdfChecked} onChange={e=>setClosing(e.target.value)}/></label></div>}
     <p><b>{draft.length} rows</b> · {ready} ready to post · {ignored} ignored by rules · {matched} exact matches · {pending} to review · {preview.filter(p=>p.existing).length} already imported</p>
-    <p className="text-xs">Narration rules apply first, followed by vendor and timing habits. Clear payments post automatically; possible duplicates, unknown accounts and unclear narration stay in review.</p>
+    <p className="text-xs">Narration rules apply first, followed by vendor, amount and timing habits. Clear payments post automatically; possible duplicates, unknown accounts and unclear narration stay in review.</p>
     <button className={buttonStyle} onClick={commit} disabled={!statementReady||!!statementError}>{source==='paytm'?'Import & post eligible payments':'Import statement'}</button>
    </div>}
   </div>
+  {selectedBatch&&<div ref={summaryRef}><StatementImportSummary key={selectedBatch.id} batch={selectedBatch} active={active} onEdit={setEditing}/></div>}
   <HabitSuggestions/>
   <div className="grid sm:grid-cols-3 gap-3"><div className="rounded-xl bg-slate-100 dark:bg-slate-800 p-3"><b>{unsettled.length} pending rows</b><p>Debit {formatCurrency(debit/100)}</p></div><div className="rounded-xl bg-slate-100 dark:bg-slate-800 p-3">Pending credits <b>{formatCurrency(credit/100)}</b></div><div className="rounded-xl bg-slate-100 dark:bg-slate-800 p-3">Net pending debit <b>{formatCurrency((debit-credit)/100)}</b><p className="text-xs">A zero net does not mean all rows are explained.</p></div></div>
   <div data-auto-save className="grid sm:grid-cols-3 gap-2"><select aria-label="Statement batch" className={inputStyle} value={batchFilter} onChange={e=>{setBatchFilter(e.target.value);setLimit(50);}}><option value="">All imports</option>{data.statementBatches?.map(b=><option key={b.id} value={b.id}>{b.source} · {b.from}–{b.to} · {b.name}</option>)}</select><select aria-label="Statement status" className={inputStyle} value={status} onChange={e=>{setStatus(e.target.value);setLimit(50);}}>{['pending','all','posted','matched','ignored'].map(s=><option key={s}>{s}</option>)}</select><input aria-label="Search statement rows" className={inputStyle} placeholder="Vendor, note or reference" value={search} onChange={e=>setSearch(e.target.value)}/></div>
