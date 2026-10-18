@@ -1,6 +1,6 @@
-import {useMemo,useState} from 'react';
+import {useEffect,useMemo,useState} from 'react';
 import {useApp} from '@/context/AppContext';
-import {classifyImport,candidates,rowState,classify,clean,batchUndoCandidates,reconciliationControls,reconciliationAdvice,type StatementRow,type StatementBatch} from '@/data/statements';
+import {classifyImport,pendingRuleMatches,candidates,rowState,classify,clean,batchUndoCandidates,reconciliationControls,reconciliationAdvice,type StatementRow,type StatementBatch,type ImportHabits} from '@/data/statements';
 import {defaultImportHabits} from '@/data/approvedHabits';
 import {parseBankRows,readBankCSV,signedMoneyMinor,dateISO,type BankColumns} from '@/data/statementImport';
 import {formatCurrency,formatDate} from '@/data/format';
@@ -15,7 +15,7 @@ import {HabitSuggestions} from './HabitSuggestions';
 import {readBankPdf} from '@/data/readBankPdf';
 
 export function StatementWorkspace({active=true,onShowHistory}:{active?:boolean;onShowHistory?:()=>void}){
- const {allData:data,statementReady,statementError,importStatement,reviewStatement,configure,undoStatementBatch}=useApp();
+ const {allData:data,statementReady,statementError,importStatement,reviewStatement,postPendingStatements,configure,undoStatementBatch}=useApp();
  const h=data.importHabits||defaultImportHabits();const [source,setSource]=useState<'paytm'|'bank'>('paytm');const [error,setError]=useState('');const [message,setMessage]=useState('');const [busy,setBusy]=useState(false);
  const [draft,setDraft]=useState<StatementRow[]>([]);const [batch,setBatch]=useState<StatementBatch>();const [accounts,setAccounts]=useState<Record<string,string>>({});
  const [kind,setKind]=useState<'bank'|'card'|'pluxee'>('bank');const [grid,setGrid]=useState<string[][]>([]);const [bankAccount,setBankAccount]=useState('');const [opening,setOpening]=useState('');const [closing,setClosing]=useState('');
@@ -23,12 +23,14 @@ export function StatementWorkspace({active=true,onShowHistory}:{active?:boolean;
  const [status,setStatus]=useState('pending');const [batchFilter,setBatchFilter]=useState('');const [search,setSearch]=useState('');const [limit,setLimit]=useState(50);const [review,setReview]=useState<StatementRow>();const [editing,setEditing]=useState<Transaction>();
  const [details,setDetails]=useState<Partial<Transaction>>({});const [ignoreReason,setIgnoreReason]=useState('');const [remember,setRemember]=useState(false);const [confirmedSeparate,setConfirmedSeparate]=useState(false);
  const [confirmUndo,setConfirmUndo]=useState(false);
+ const [habitToReview,setHabitToReview]=useState('');
+ const [ruleProposal,setRuleProposal]=useState<{plans:ReturnType<typeof pendingRuleMatches>;habits:ImportHabits;vendorId?:string}>();
  const [selectedName,setSelectedName]=useState('');const [password,setPassword]=useState('');const [pdfChecked,setPdfChecked]=useState(false);const [periodFrom,setPeriodFrom]=useState('');const [periodTo,setPeriodTo]=useState('');const [periodChecked,setPeriodChecked]=useState(false);
  const reserved=useMemo(()=>new Set((data.statementRows||[]).filter(r=>r.source===review?.source&&r.transactionId&&r.id!==review?.id&&rowState(r,data.transactions).status!=='pending').map(r=>r.transactionId!)),[data.statementRows,data.transactions,review]);
  const linkedEntry=review?data.transactions.find(t=>t.id===review.transactionId&&t.status==='active'):undefined;
  const matches=review?candidates({...review,account:details.account||review.account},data.transactions,reserved).filter(t=>t.id!==linkedEntry?.id):[];
  const mapped=draft.map(r=>{const account=r.source==='bank'?r.account:accounts[r.account]||r.account;return {...r,account};});
- const preview=classifyImport(mapped,data,h);const ready=preview.filter(p=>!p.existing&&p.classification.action==='post').length;const ignored=preview.filter(p=>!p.existing&&p.classification.action==='ignore').length;const pending=preview.filter(p=>!p.existing&&!p.exactReference&&p.classification.action==='review').length;const matched=preview.filter(p=>!p.existing&&p.exactReference).length;
+ const preview=classifyImport(mapped,data,h,true);const ready=preview.filter(p=>!p.existing&&p.classification.action==='post').length;const ignored=preview.filter(p=>!p.existing&&p.classification.action==='ignore').length;const pending=preview.filter(p=>!p.existing&&!p.exactReference&&p.classification.action==='review').length;const matched=preview.filter(p=>!p.existing&&p.exactReference).length;
  const rows=(data.statementRows||[]).map(r=>rowState(r,data.transactions));
  const selectedBatch=data.statementBatches?.find(b=>b.id===batchFilter);
  const inBatch=(r:StatementRow)=>!batchFilter||(selectedBatch?.rowIds?selectedBatch.rowIds.includes(r.id):r.batchId===batchFilter);
@@ -38,6 +40,24 @@ export function StatementWorkspace({active=true,onShowHistory}:{active?:boolean;
  const undoIds=selectedBatch?batchUndoCandidates(selectedBatch,rows,data.transactions):[];
  const unlinkedAppEntries=selectedBatch?.source==='bank'?data.transactions.filter(t=>t.status==='active'&&batchRows.some(r=>r.account===t.account)&&t.date>=selectedBatch.from&&t.date<=selectedBatch.to&&!batchRows.some(r=>r.transactionId===t.id&&['matched','posted'].includes(r.status))):[];
  const controls=selectedBatch?reconciliationControls(selectedBatch,rows,data.transactions):undefined;const advice=review?reconciliationAdvice({...review,account:details.account||review.account},data.transactions):undefined;
+ useEffect(()=>{
+  if(!habitToReview)return;
+  const habits=data.importHabits||defaultImportHabits(),plans=pendingRuleMatches(data,habits,undefined,habitToReview);
+  setHabitToReview('');
+  if(plans.length)setRuleProposal({plans,habits:structuredClone(habits),vendorId:habitToReview});
+  else setMessage('Vendor habit saved. No other pending payments qualify for automatic posting.');
+ },[habitToReview,data]);
+ function proposePendingRules(){
+  const plans=pendingRuleMatches(data,h,unsettled.map(r=>r.id));
+  setError('');
+  if(plans.length)setRuleProposal({plans,habits:structuredClone(h)});
+  else setMessage('No pending payments qualify for automatic posting. Review their narration, account or possible duplicate.');
+ }
+ function finishRuleReview(post:boolean){
+  try{if(!ruleProposal)return;if(post)postPendingStatements(ruleProposal.plans.map(p=>p.row.id),ruleProposal.habits,ruleProposal.vendorId);
+   setMessage(post?`Posted ${ruleProposal.plans.length} confirmed payments. Remaining payments are ready for review.`:'These payments remain pending for review.');setRuleProposal(undefined);setError('');clearSheetDraft();
+  }catch(e){setError(e instanceof Error?e.message:String(e));}
+ }
  async function read(file:File){
   setBusy(true);setError('');setPdfChecked(false);setPeriodChecked(false);setPeriodFrom('');setPeriodTo('');setDraft([]);setGrid([]);setOpening('');setClosing('');setMessage('Reading locally…');
   const id='batch-'+Date.now()+'-'+Math.random().toString(36).slice(2,8);const b:StatementBatch={id,source,name:file.name,createdAt:Date.now(),from:'',to:'',count:0};setBatch(b);
@@ -68,8 +88,9 @@ export function StatementWorkspace({active=true,onShowHistory}:{active?:boolean;
  }catch(e){setError(e instanceof Error?e.message:String(e));}}
  function startReview(r:StatementRow){const c=classify(r,h,rows);const existing=data.transactions.find(t=>t.id===r.transactionId&&t.status==='active');setReview(r);setDetails({type:r.direction==='credit'?undefined:c.type,majorCategory:c.category,subCategory:c.subcategory,heading:r.vendor,remarks:r.note,person:'',paymentMode:r.paymentMode||(r.source==='paytm'?'UPI':data.statementBatches?.find(b=>b.id===r.batchId)?.kind==='card'?'CC':data.statementBatches?.find(b=>b.id===r.batchId)?.kind==='pluxee'?'Wallet':''),customFields:{},...existing,account:data.accounts.includes(r.account)?r.account:''});setIgnoreReason('');setRemember(false);setConfirmedSeparate(false);setError('');}
  function action(a:'ignore'|'post'|'match',t?:Transaction){try{if(!review)return;if(a==='post'&&!linkedEntry&&matches.length&&!confirmedSeparate)throw Error('Match an existing entry, or confirm this is a separate payment.');reviewStatement(review.id,a,t?{id:t.id,account:details.account}:details,ignoreReason);
-  if(remember&&a==='post'&&details.majorCategory){const existing=h.vendors.find(v=>clean(v.vendor)===clean(review.vendor));const v={...existing,id:existing?.id||'vendor-'+Date.now(),vendor:review.vendor,enabled:true,action:'post' as const,category:details.majorCategory,subcategory:details.subCategory||'',type:details.type||'Revenue Expense' as TransactionType};configure({importHabits:{...h,vendors:existing?h.vendors.map(x=>x.id===v.id?v:x):[v,...h.vendors]}});}
-  setReview(undefined);clearSheetDraft();setError('');
+  if(remember&&a==='post'&&details.majorCategory){const existing=h.vendors.find(v=>clean(v.vendor)===clean(review.vendor));const v={...existing,id:existing?.id||'vendor-'+Date.now(),vendor:review.vendor,enabled:true,action:'post' as const,category:details.majorCategory,subcategory:details.subCategory||'',type:details.type||'Revenue Expense' as TransactionType};configure({importHabits:{...h,vendors:existing?h.vendors.map(x=>x.id===v.id?v:x):[v,...h.vendors]}});setHabitToReview(v.id);setReview(undefined);}
+  else{const next=filtered.find(r=>r.status==='pending'&&r.id!==review.id);if(next)startReview(next);else setReview(undefined);}
+  clearSheetDraft();setError('');
  }catch(e){setError(e instanceof Error?e.message:String(e));}}
  return <div className="space-y-5 text-sm">
   <p>Import a Paytm PDF for any date range using your habit rules. Import a bank statement monthly to explain unmatched movements. Files are processed on this device.</p>
@@ -90,13 +111,14 @@ export function StatementWorkspace({active=true,onShowHistory}:{active?:boolean;
     {source==='paytm'&&Object.keys(accounts).map(a=><label key={a} className="block">{a} → app account<select aria-label={`Map ${a}`} className={inputStyle} value={accounts[a]} onChange={e=>setAccounts({...accounts,[a]:e.target.value})}><option value="">Keep account unknown for review</option>{data.accounts.map(n=><option key={n}>{n}</option>)}</select></label>)}
     {source==='bank'&&<div className="grid sm:grid-cols-2 gap-3"><label>Statement from (full coverage)<input aria-label="Statement period from" type="date" className={inputStyle} value={periodFrom} readOnly={periodChecked} onChange={e=>setPeriodFrom(e.target.value)}/></label><label>Statement to (full coverage)<input aria-label="Statement period to" type="date" className={inputStyle} value={periodTo} readOnly={periodChecked} onChange={e=>setPeriodTo(e.target.value)}/></label><label>Statement opening balance ₹ (optional)<input className={inputStyle} value={opening} readOnly={pdfChecked} onChange={e=>setOpening(e.target.value)}/></label><label>Statement closing balance ₹ (optional)<input className={inputStyle} value={closing} readOnly={pdfChecked} onChange={e=>setClosing(e.target.value)}/></label></div>}
     <p><b>{draft.length} rows</b> · {ready} ready to post · {ignored} ignored by rules · {matched} exact matches · {pending} to review · {preview.filter(p=>p.existing).length} already imported</p>
-    <p className="text-xs">Importing applies your current habits to clear Paytm entries. Existing-entry candidates, unfamiliar narration and unusual amounts stay in review.</p>
-    <button className={buttonStyle} onClick={commit} disabled={!statementReady||!!statementError}>Import statement</button>
+    <p className="text-xs">Narration rules apply first, followed by vendor and timing habits. Clear payments post automatically; possible duplicates, unknown accounts and unclear narration stay in review.</p>
+    <button className={buttonStyle} onClick={commit} disabled={!statementReady||!!statementError}>{source==='paytm'?'Import & post eligible payments':'Import statement'}</button>
    </div>}
   </div>
   <HabitSuggestions/>
   <div className="grid sm:grid-cols-3 gap-3"><div className="rounded-xl bg-slate-100 dark:bg-slate-800 p-3"><b>{unsettled.length} pending rows</b><p>Debit {formatCurrency(debit/100)}</p></div><div className="rounded-xl bg-slate-100 dark:bg-slate-800 p-3">Pending credits <b>{formatCurrency(credit/100)}</b></div><div className="rounded-xl bg-slate-100 dark:bg-slate-800 p-3">Net pending debit <b>{formatCurrency((debit-credit)/100)}</b><p className="text-xs">A zero net does not mean all rows are explained.</p></div></div>
   <div data-auto-save className="grid sm:grid-cols-3 gap-2"><select aria-label="Statement batch" className={inputStyle} value={batchFilter} onChange={e=>{setBatchFilter(e.target.value);setLimit(50);}}><option value="">All imports</option>{data.statementBatches?.map(b=><option key={b.id} value={b.id}>{b.source} · {b.from}–{b.to} · {b.name}</option>)}</select><select aria-label="Statement status" className={inputStyle} value={status} onChange={e=>{setStatus(e.target.value);setLimit(50);}}>{['pending','all','posted','matched','ignored'].map(s=><option key={s}>{s}</option>)}</select><input aria-label="Search statement rows" className={inputStyle} placeholder="Vendor, note or reference" value={search} onChange={e=>setSearch(e.target.value)}/></div>
+  {unsettled.length>0&&<div className="flex flex-wrap items-center gap-3"><button className={buttonStyle} onClick={()=>{const next=filtered.find(r=>r.status==='pending')||unsettled[0];startReview(next);}}>Review next payment</button><button className="text-cyan-600 underline" disabled={!statementReady||!!statementError} onClick={proposePendingRules}>Apply saved rules to pending payments</button></div>}
   {selectedBatch?.sourceWarning&&<p className="text-amber-700 text-xs">{selectedBatch.sourceWarning}</p>}
   {controls&&<details className="rounded-xl border dark:border-slate-700 p-3"><summary>Reconciliation controls - {controls.counts.pending} unexplained rows</summary><div className="text-xs space-y-2 mt-2"><p>{controls.rows.length} / {selectedBatch!.count} imported movement rows present - {controls.populationComplete?'population agrees':'population mismatch - restore/check the import'}</p><p>{controls.counts.matched} matched / {controls.counts.posted} posted / {controls.counts.ignored} ignored / {controls.counts.pending} pending</p><p>Total debits {formatCurrency(controls.debitMinor/100)} / credits {formatCurrency(controls.creditMinor/100)}</p><p>{controls.balanceDifference===undefined?'Opening / closing balances were not provided; statement arithmetic is unverified.':`${selectedBatch!.kind==='card'?'Opening + purchases - credits':'Opening + credits - debits'} differs from closing by ${formatCurrency(controls.balanceDifference/100)}.`}</p><p>These controls cover imported nonzero movement rows. They do not compare the selective personal expense ledger with the bank balance. Zero rows and blank lines are excluded; check the source period and totals.</p></div></details>}
   {undoIds.length>0&&<button className="text-rose-600" onClick={()=>setConfirmUndo(true)}>Undo {undoIds.length} untouched automatic postings from this import</button>}
@@ -114,8 +136,16 @@ export function StatementWorkspace({active=true,onShowHistory}:{active?:boolean;
     <DynamicFields fields={data.customFields.filter(f=>f.enabled&&(!f.applicableTypes.length||f.applicableTypes.includes(details.type!)))} values={details.customFields||{}} onChange={(k,v)=>setDetails({...details,customFields:{...details.customFields,[k]:v}})}/>
     <label className="flex gap-2"><input type="checkbox" checked={remember} onChange={e=>setRemember(e.target.checked)}/>Save this vendor default in Settings (narration still comes first)</label>
     {!linkedEntry&&matches.length>0&&<label className="flex gap-2"><input type="checkbox" checked={confirmedSeparate} onChange={e=>setConfirmedSeparate(e.target.checked)}/>This is a separate payment from the suggested existing entries.</label>}
-    <button className={buttonStyle} onClick={()=>action('post')}>{linkedEntry?'Save changes to posted entry':'Post reviewed entry'}</button>
+    <button className={buttonStyle} onClick={()=>action('post')}>{linkedEntry?'Save changes to posted entry':remember?'Post & check this habit':'Post & review next'}</button>
     <label className="block">Reason to ignore<input aria-label="Reason to ignore" className={inputStyle} value={ignoreReason} onChange={e=>setIgnoreReason(e.target.value)} placeholder="Own transfer / reimbursed / posted separately"/></label><button className="text-cyan-600" onClick={()=>action('ignore')}>Ignore with reason</button>
+   </div>}
+  </Sheet>
+  <Sheet open={active&&!!ruleProposal} onClose={()=>{setRuleProposal(undefined);setError('');}} title="Confirm matching payments">
+   {ruleProposal&&<div className="space-y-4"><p>{ruleProposal.vendorId?'Your vendor habit matches these pending payments.':'Your current narration and habit rules can post these pending payments.'} Check the proposed categories before confirming.</p>
+    <p className="font-semibold">{ruleProposal.plans.length} payment{ruleProposal.plans.length===1?'':'s'} · {formatCurrency(ruleProposal.plans.reduce((sum,p)=>sum+p.row.amountMinor,0)/100)}</p>
+    <div className="divide-y dark:divide-slate-700">{ruleProposal.plans.map(({row,classification})=><div key={row.id} className="py-3 space-y-1"><p className="flex justify-between gap-3"><b>{row.vendor}</b><span className="whitespace-nowrap">{formatCurrency(row.amountMinor/100)}</span></p><p>{formatDate(row.date)}{row.time?` · ${row.time}`:''} · {row.account}</p><p>Narration: {row.note||'Blank'}</p><p className="font-semibold">{classification.category}{classification.subcategory?` / ${classification.subcategory}`:''}</p><p className="text-xs text-slate-500">{classification.reason} · Ref {row.reference||'not supplied'}</p></div>)}</div>
+    {error&&<p role="alert" className="text-rose-600">{error}</p>}
+    <div className="sticky bottom-0 bg-white dark:bg-slate-900 py-2 space-y-3"><button className={`${buttonStyle} w-full`} onClick={()=>finishRuleReview(true)}>Post {ruleProposal.plans.length} matching payment{ruleProposal.plans.length===1?'':'s'}</button><button className="w-full text-cyan-600 underline" onClick={()=>finishRuleReview(false)}>Keep these payments pending</button></div>
    </div>}
   </Sheet>
   <Sheet open={active&&!!editing} onClose={()=>setEditing(undefined)} title="Edit existing entry">{editing&&<TransactionForm key={editing.id} editTransaction={editing} isModal onSuccess={()=>setEditing(undefined)} onClose={()=>setEditing(undefined)}/>}</Sheet>

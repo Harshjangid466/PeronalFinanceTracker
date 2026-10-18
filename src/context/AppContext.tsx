@@ -20,7 +20,7 @@ import {
 } from '@/data/types';
 import { loadData, saveData, uid } from '@/data/storage';
 import {loadStatementArchive,saveStatementArchive} from '@/data/statementStore';
-import {classifyImport,mergeStatementRows,rowState,batchUndoCandidates,saveStatementPosting,type StatementRow,type StatementBatch} from '@/data/statements';
+import {classifyImport,pendingRuleMatches,mergeStatementRows,rowState,batchUndoCandidates,saveStatementPosting,type StatementRow,type StatementBatch,type ImportHabits} from '@/data/statements';
 import {defaultImportHabits} from '@/data/approvedHabits';
 import { migrateData, projectMasters, financialEffect, dependencies, idFields, masterFields, patternKey, visibleField, type MasterItem, type MasterKind } from '@/data/model';
 import { auditChanges } from '@/data/audit';
@@ -90,6 +90,7 @@ interface AppContextValue {
   statementError:string;
   importStatement:(rows:StatementRow[],batch:StatementBatch)=>void;
   reviewStatement:(id:string,action:'ignore'|'reopen'|'match'|'post',details?:Partial<Transaction>,reason?:string)=>void;
+  postPendingStatements:(ids:string[],habits:ImportHabits,vendorId?:string)=>void;
   undoStatementBatch:(id:string)=>void;
   bankCapture:BankCapture;
   saveBankAlerts: (alerts:BankAlert[])=>void;
@@ -206,26 +207,39 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const found=prev.categories.find(c=>c.name===t.majorCategory);
     return found?prev.categories.map(c=>c.name===t.majorCategory&&t.subCategory&&!c.subCategories.includes(t.subCategory)?{...c,subCategories:[...c.subCategories,t.subCategory]}:c):[...prev.categories,{name:t.majorCategory,subCategories:t.subCategory?[t.subCategory]:[]}];
   }
-  function importStatement(rows:StatementRow[],batch:StatementBatch){
-    if(!statementReady)throw Error('Statement history is not ready.');
-    mergeStatementRows(allData.statementRows||[],rows);
-    setData(prev=>{
-      const habits=prev.importHabits||defaultImportHabits();
-      const preview=classifyImport(rows,prev,habits);let next=prev;
+  function applyStatementRules(prev:AppData,rows:StatementRow[],habits:ImportHabits){
+      const preview=classifyImport(rows,prev,habits,true);let next=prev;
       const imported=preview.filter(p=>!p.existing).map(p=>{
         if(p.exactReference&&p.matches.length===1)return {...p.row,status:'matched' as const,transactionId:p.matches[0].id,reason:'Exact account, reference, date and amount match'};
         if(p.classification.action==='ignore'&&p.row.source==='paytm')return {...p.row,status:'ignored' as const,reason:p.classification.reason};
-        const requiresCustom=prev.customFields.some(f=>f.enabled&&f.required&&(!f.applicableTypes.length||f.applicableTypes.includes(p.classification.type)));
-        const deactivated=!prev.paymentModes.includes('UPI')||prev.masters?.some(m=>!m.active&&((m.kind==='source'&&m.name===p.row.account)||(m.kind==='category'&&m.name===p.classification.category)||(m.kind==='paymentMode'&&m.name==='UPI')));
-        if(p.classification.action==='post'&&p.classification.type==='Revenue Expense'&&p.row.source==='paytm'&&prev.accounts.includes(p.row.account)&&p.classification.category&&!requiresCustom&&!deactivated){
+        if(p.classification.action==='post'&&p.classification.type==='Revenue Expense'&&p.row.source==='paytm'){
           const t=statementTransaction(p.row,{type:p.classification.type,majorCategory:p.classification.category,subCategory:p.classification.subcategory});
           next={...next,transactions:[t,...next.transactions],categories:ensureStatementCategory(next,t)};
           return {...p.row,status:'posted' as const,transactionId:t.id,reason:p.classification.reason};
         }
-        return {...p.row,reason:requiresCustom?'Required custom fields need review':p.classification.reason};
+        return {...p.row,reason:p.classification.reason};
       });
+      const updated=new Map(imported.map(r=>[r.id,r]));
+      return {...next,statementRows:mergeStatementRows(prev.statementRows||[],imported).map(r=>updated.get(r.id)||r)};
+  }
+  function importStatement(rows:StatementRow[],batch:StatementBatch){
+    if(!statementReady)throw Error('Statement history is not ready.');
+    mergeStatementRows(allData.statementRows||[],rows);
+    setData(prev=>{
+      mergeStatementRows(prev.statementRows||[],rows);
+      const habits=prev.importHabits||defaultImportHabits(),next=applyStatementRules(prev,rows,habits);
       const batches=prev.statementBatches||[];
-      return {...next,importHabits:habits,statementRows:mergeStatementRows(prev.statementRows||[],imported),statementBatches:batches.some(b=>b.id===batch.id)?batches:[batch,...batches],actionLog:[...next.actionLog,{id:uid(),timestamp:Date.now(),actionType:'import',entityType:'statement',entityId:batch.id,description:`Imported ${batch.source} statement: ${imported.length} new rows`}]};
+      return {...next,importHabits:habits,statementBatches:batches.some(b=>b.id===batch.id)?batches:[batch,...batches],actionLog:[...next.actionLog,{id:uid(),timestamp:Date.now(),actionType:'import',entityType:'statement',entityId:batch.id,description:`Imported ${batch.source} statement: ${rows.length} source rows; applied current rules to new and pending rows`}]};
+    });
+  }
+  function postPendingStatements(ids:string[],habits:ImportHabits,vendorId?:string){
+    if(!statementReady||statementError)throw Error('Statement history is not ready.');
+    const valid=(data:AppData)=>JSON.stringify(data.importHabits||defaultImportHabits())===JSON.stringify(habits)&&ids.length>0&&new Set(ids).size===ids.length&&pendingRuleMatches(data,habits,ids,vendorId).length===ids.length;
+    if(!valid(allData))throw Error('Some payments or habits changed. Open the matching list again before posting.');
+    setData(prev=>{
+      if(!valid(prev))return prev;
+      const next=applyStatementRules(prev,(prev.statementRows||[]).filter(r=>ids.includes(r.id)),habits);
+      return {...next,actionLog:[...next.actionLog,{id:uid(),timestamp:Date.now(),actionType:'review',entityType:'statement',entityId:vendorId||'pending',description:`Confirmed habit rules for ${ids.length} pending payments`}]};
     });
   }
   function reviewStatement(id:string,action:'ignore'|'reopen'|'match'|'post',details:Partial<Transaction>={},reason=''){
@@ -1116,7 +1130,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }
 
   const value: AppContextValue = {
-    statementReady,statementError,importStatement,reviewStatement,undoStatementBatch,
+    statementReady,statementError,importStatement,reviewStatement,postPendingStatements,undoStatementBatch,
     bankCapture,
     saveBankAlerts,updateBankAlert,
     data, allData, deletedTransactions:allData.transactions.filter(t=>t.status==='deleted'),restoreTransaction,configure,logAction,manageMaster,removeMaster,importTransactions,

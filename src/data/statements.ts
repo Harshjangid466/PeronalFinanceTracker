@@ -27,27 +27,22 @@ export function classify(row:StatementRow,habits:ImportHabits,history:StatementR
  const blocked=/\b(failed|refund|reversal|reversed|reimburs\w*|lent|loan|business|partnership|partneship|to ghar|split|share)\b/.test(note);
  const nh=habits.narrations.filter(h=>h.enabled&&h.terms.some(t=>{const n=clean(t);return n&&(` ${note} `).includes(` ${n} `);}));
  const ignore=nh.find(h=>h.action==='ignore');if(ignore)return result('ignore','','',`Narration: ${ignore.terms.join(', ')}`);
- const vendorRules=habits.vendors.filter(h=>h.enabled&&(h.prefix?clean(row.vendor).startsWith(clean(h.vendor)):clean(h.vendor)===clean(row.vendor)));
- if(new Set(vendorRules.map(v=>`${v.action}|${v.category}|${v.subcategory}|${v.type}`)).size>1)return result('review','','','Overlapping vendor habits conflict');
- const vendor=vendorRules[0];
  // Narration is authoritative; overlapping food-specific terms refine generic Food.
- const specific=nh.find(h=>h.id==='dinner'||h.id==='groceries');const matched=specific?[specific]:nh;
+ const specific=nh.find(h=>h.id==='dinner'||h.id==='groceries');const matched=specific?nh.filter(h=>h.id!=='food'||h.category!==specific.category||h.action!==specific.action):nh;
  const distinct=new Set(matched.map(h=>`${h.action}|${h.category}|${h.subcategory}`));
  if(distinct.size>1)return result('review','','','Narration gives conflicting classifications');
  const rule=matched[0];
  const generic=!note||/^(upi|upiintent|mopsupitxn|true|pay|payment|merchant qr|verified paytm (account|merchant)|pay to .*|payment to .*|payment for \d+|\d+)$/.test(note);
- if(blocked&&!vendor?.action.includes('ignore'))return result('review',rule?.category||'','','Complex narration needs review');
- if(!rule&&!generic&&vendor?.action!=='ignore')return result('review',vendor?.category||'',vendor?.subcategory||'','Unrecognised narration; habit not applied');
+ if(blocked)return result('review',rule?.category||'','','Complex narration needs review');
+ if(rule)return result(rule.action,rule.category,rule.subcategory,rule.action==='review'?'Narration rule requires review':'Narration rule');
+ if(!generic)return result('review','','','Unrecognised narration; habit not applied');
+ const vendorRules=habits.vendors.filter(h=>h.enabled&&clean(h.vendor)&&(h.prefix?clean(row.vendor).startsWith(clean(h.vendor)):clean(h.vendor)===clean(row.vendor)));
+ if(new Set(vendorRules.map(v=>`${v.action}|${v.category}|${v.subcategory}|${v.type}`)).size>1)return result('review','','','Overlapping vendor habits conflict');
+ const vendor=vendorRules[0];
  const unusual=vendor?.maxAmountMinor!==undefined&&row.amountMinor>vendor.maxAmountMinor;
  const samples=history.filter(r=>r.source==='paytm'&&r.id!==row.id&&r.direction==='debit'&&clean(r.vendor)===clean(row.vendor)&&['posted','matched'].includes(r.status)).map(r=>r.amountMinor).sort((a,b)=>a-b);
  const median=samples.length?samples[Math.floor(samples.length/2)]:0;
- if(unusual||(samples.length>=3&&row.amountMinor>median*habits.unusualMultiplier))return result('review',rule?.category||vendor?.category||'',rule?.subcategory||vendor?.subcategory||'','Amount outside the usual range');
- if(rule){
-  if(rule.action==='review')return result('review',rule.category,rule.subcategory,'Narration rule requires review');
-  if(!vendor)return result('review',rule.category,rule.subcategory,'New vendor: confirm the narration classification');
-  const conflicts=vendor&&vendor.action==='post'&&vendor.category!==rule.category;
-  return result(conflicts?'review':'post',rule.category,rule.subcategory,conflicts?'Narration overrides a conflicting vendor habit; confirm once':'Narration rule');
- }
+ if(unusual||(samples.length>=3&&row.amountMinor>median*habits.unusualMultiplier))return result('review',vendor?.category||'',vendor?.subcategory||'','Amount outside the usual range');
  if(vendor)return result(vendor.action,vendor.category,vendor.subcategory,vendor.action==='ignore'?'Your vendor exclusion':'Your vendor habit',vendor.type);
  const weekday=new Date(row.date+'T12:00:00Z').getUTCDay();
  if(habits.morningEnabled&&weekday>0&&weekday<6&&row.time&&row.time>=habits.morningStart&&row.time<=habits.morningEnd&&[1500,5000].includes(row.amountMinor))return result(habits.morningAutoPost?'post':'review','Commute','Auto','Weekday morning fare habit');
@@ -121,22 +116,38 @@ export function validateStatementBatches(value:unknown):asserts value is Stateme
  if(!Array.isArray(value))throw Error('Invalid statement imports');const ids=new Set<string>();
  for(const b of value){if(!b||typeof b.id!=='string'||ids.has(b.id)||!['paytm','bank'].includes(b.source)||typeof b.name!=='string'||!Number.isFinite(b.createdAt)||!Number.isSafeInteger(b.count)||b.count<1||!/^\d{4}-\d{2}-\d{2}$/.test(b.from)||!/^\d{4}-\d{2}-\d{2}$/.test(b.to)||b.from>b.to||b.kind!==undefined&&!['bank','card','pluxee'].includes(b.kind)||[b.openingMinor,b.closingMinor].some(n=>n!==undefined&&!Number.isSafeInteger(n))||b.rowIds!==undefined&&(!Array.isArray(b.rowIds)||b.rowIds.some((id:unknown)=>typeof id!=='string')||new Set(b.rowIds).size!==b.rowIds.length))throw Error('Invalid statement import');ids.add(b.id);}
 }
-export function classifyImport(rows:StatementRow[],data:AppData,habits:ImportHabits){
- const known=data.statementRows||[];const reserved=new Set(known.filter(r=>r.source===rows[0]?.source&&r.transactionId).map(r=>r.transactionId!));
- return rows.map(row=>{
-  const saved=known.find(r=>r.id===row.id);if(saved)return {row:saved,classification:classify(saved,habits,known),matches:[],existing:true};
+export function classifyImport(rows:StatementRow[],data:AppData,habits:ImportHabits,recheckPending=false){
+ const known=data.statementRows||[];const reserved=new Set(known.filter(r=>r.source===rows[0]?.source&&r.transactionId&&rowState(r,data.transactions).status!=='pending').map(r=>r.transactionId!));
+ return rows.map(incoming=>{
+  const saved=known.find(r=>r.id===incoming.id);const row=saved?rowState(saved,data.transactions):incoming;
+  if(saved&&(!recheckPending||row.status!=='pending'||row.transactionId))return {row,classification:classify(row,habits,known),matches:[],existing:true};
   const references=data.transactions.filter(t=>t.status==='active'&&t.statementReferences?.includes(row.reference)&&row.reference&&t.account===row.account&&t.date===row.date&&t.amountMinor===row.amountMinor&&directionOf(t)===row.direction);
   const matches=references.length?references:candidates(row,data.transactions,reserved);
   // Even a single amount/date candidate needs confirmation without an exact payment reference.
   const classification=classify(row,habits,known);
-  const near=data.transactions.some(t=>t.status==='active'&&t.account===row.account&&directionOf(t)===row.direction&&t.date===row.date&&Math.abs(t.amountMinor-row.amountMinor)<=100);
-  const exactReference=references.length===1&&!reserved.has(references[0].id);
+  const referenceConflict=data.transactions.some(t=>t.status==='active'&&row.reference&&t.account===row.account&&t.statementReferences?.includes(row.reference)&&!references.includes(t));
+  const near=data.transactions.some(t=>t.status==='active'&&!reserved.has(t.id)&&t.account===row.account&&directionOf(t)===row.direction&&t.date===row.date&&Math.abs(t.amountMinor-row.amountMinor)<=100);
+  const exactReference=references.length===1&&!reserved.has(references[0].id)&&!referenceConflict;
   if(exactReference)reserved.add(references[0].id);
-  if(matches.length||near||row.source==='bank'||!data.accounts.includes(row.account)||classification.type!=='Revenue Expense')classification.action='review';
+  if(matches.length||near||referenceConflict||row.source==='bank'||!data.accounts.includes(row.account)||classification.type!=='Revenue Expense')classification.action='review';
   if(matches.length)classification.reason=references.length?'Reference match; confirm link':'Possible existing entry; confirm before posting';
+  else if(referenceConflict)classification.reason='Existing payment reference has different details; review before posting';
   else if(near)classification.reason='Possible amount discrepancy with an existing entry';
   else if(row.source==='bank')classification.reason='Bank reconciliation: review unmatched row';
   else if(!data.accounts.includes(row.account))classification.reason='Choose the credited/debited account during review';
+  const requiresCustom=data.customFields.some(f=>f.enabled&&f.required&&(!f.applicableTypes.length||f.applicableTypes.includes(classification.type)));
+  const inactive=data.masters?.some(m=>!m.active&&((m.kind==='source'&&m.name===row.account)||(m.kind==='category'&&m.name===classification.category)||(m.kind==='paymentMode'&&m.name==='UPI')));
+  if(classification.action==='post'){
+   if(!classification.category){classification.action='review';classification.reason='Choose a category before posting';}
+   else if(requiresCustom){classification.action='review';classification.reason='Required custom fields need review';}
+   else if(inactive||!data.paymentModes.includes('UPI')){classification.action='review';classification.reason='Choose an active account, category and UPI payment mode';}
+  }
   return {row,classification,matches,existing:false,exactReference};
  });
+}
+export function pendingRuleMatches(data:AppData,habits:ImportHabits,ids?:string[],vendorId?:string){
+ const vendor=vendorId?habits.vendors.find(v=>v.id===vendorId&&v.enabled&&v.action==='post'):undefined;
+ if(vendorId&&!vendor)return [];
+ const rows=(data.statementRows||[]).filter(r=>r.source==='paytm'&&!r.transactionId&&rowState(r,data.transactions).status==='pending'&&(!ids||ids.includes(r.id)));
+ return classifyImport(rows,data,habits,true).filter(p=>!p.existing&&!p.exactReference&&p.classification.action==='post'&&(!vendor||p.classification.reason==='Your vendor habit'&&(vendor.prefix?clean(p.row.vendor).startsWith(clean(vendor.vendor)):clean(p.row.vendor)===clean(vendor.vendor))));
 }
