@@ -34,7 +34,7 @@ export function removeStatementImport(data:AppData,id:string,deletePosted:boolea
  const ids=new Set(deletePosted?preview.deletable.map(t=>t.id):[]),now=Date.now();
  const transactions=data.transactions.map(t=>{
   const source=entrySource(t,data),next=source.batchId===id?{...t,entrySource:source}:t;
-  return ids.has(t.id)?{...next,status:'deleted' as const,deletedAt:now,updatedAt:now}:next;
+  return ids.has(t.id)?{...next,status:'deleted' as const,deletedVia:'import-removal' as const,deletedAt:now,updatedAt:now}:next;
  });
  return applyRemovalTombstones({...data,transactions,removedStatementBatchIds:[...new Set([...(data.removedStatementBatchIds||[]),id])]});
 }
@@ -43,6 +43,7 @@ export function permanentlyDeleteEntry(data:AppData,id:string):AppData{
  return applyRemovalTombstones({...data,permanentlyDeletedTransactionIds:[...new Set([...(data.permanentlyDeletedTransactionIds||[]),id])],skippedOccurrences:t.recurringTemplateId&&t.recurringOccurrenceDate?[...new Set([...(data.skippedOccurrences||[]),`${t.recurringTemplateId}|${t.recurringOccurrenceDate}`])]:data.skippedOccurrences});
 }
 export function validateEntryMetadata(data:AppData){
+ for(const t of data.transactions)if(t.deletedVia!==undefined&&!['individual','import-removal','import-undo','receivable-removal'].includes(t.deletedVia))throw Error('Invalid deletion method');
  for(const key of ['permanentlyDeletedTransactionIds','removedStatementBatchIds'] as const){const ids=data[key];if(ids!==undefined&&(!Array.isArray(ids)||ids.some(id=>typeof id!=='string'||!id)||new Set(ids).size!==ids.length))throw Error('Invalid deletion history');}
  for(const t of data.transactions){const s=t.entrySource;if(s!==undefined&&(!s||typeof s!=='object'||!Object.prototype.hasOwnProperty.call(entrySourceLabels,s.kind)||s.batchId!==undefined&&typeof s.batchId!=='string'||s.fileName!==undefined&&typeof s.fileName!=='string'))throw Error('Invalid entry source');}
 }

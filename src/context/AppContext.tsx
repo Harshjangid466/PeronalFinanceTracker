@@ -204,7 +204,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const type=details.type||'Revenue Expense',now=Date.now();
     return {id:uid(),entrySource:statementEntrySource(row,batch||allData.statementBatches?.find(b=>b.id===row.batchId)),schemaVersion:4,type,amount:row.amountMinor/100,amountMinor:row.amountMinor,currency:'INR',date:row.date,createdAt:now,updatedAt:now,majorCategory:details.majorCategory||'',subCategory:details.subCategory||'',paymentMode:details.paymentMode||'UPI',account:row.account,person:details.person||'',heading:details.heading||row.vendor,remarks:details.remarks??row.note,customFields:details.customFields||{},financialEffect:financialEffect(type,row.amountMinor),status:'active',purchasedFrom:details.purchasedFrom||'',paymentFor:details.paymentFor||'',incomeType:details.incomeType||'',investmentType:details.investmentType||'',statementReferences:row.reference?[row.reference]:[]};
   }
-  function undoStatementBatch(id:string){setData(prev=>{const batch=prev.statementBatches?.find(b=>b.id===id);if(!batch)return prev;const ids=new Set(batchUndoCandidates(batch,prev.statementRows||[],prev.transactions));return {...prev,transactions:prev.transactions.map(t=>ids.has(t.id)?{...t,status:'deleted',deletedAt:Date.now(),updatedAt:Date.now()}:t),actionLog:[...prev.actionLog,{id:uid(),timestamp:Date.now(),actionType:'undo',entityType:'statement',entityId:id,description:`Undid ${ids.size} untouched auto-posted entries; retained import review history`}]};});}
+  function undoStatementBatch(id:string){setData(prev=>{const batch=prev.statementBatches?.find(b=>b.id===id);if(!batch)return prev;const ids=new Set(batchUndoCandidates(batch,prev.statementRows||[],prev.transactions));return {...prev,transactions:prev.transactions.map(t=>ids.has(t.id)?{...t,status:'deleted',deletedVia:'import-undo',deletedAt:Date.now(),updatedAt:Date.now()}:t),actionLog:[...prev.actionLog,{id:uid(),timestamp:Date.now(),actionType:'undo',entityType:'statement',entityId:id,description:`Undid ${ids.size} untouched auto-posted entries; retained import review history`}]};});}
   function ensureStatementCategory(prev:AppData,t:Transaction){
     if(!t.majorCategory)return prev.categories;
     const found=prev.categories.find(c=>c.name===t.majorCategory);
@@ -288,7 +288,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   function logAction(action:string,entity:string,description:string) {
     setStoredData(prev=>({...prev,actionLog:[...prev.actionLog,{id:uid(),timestamp:Date.now(),actionType:action,entityType:entity,entityId:entity,description}]}));
   }
-  function restoreTransaction(id:string) { setData(prev=>({...prev,transactions:prev.transactions.map(t=>t.id===id?{...t,status:'active',deletedAt:undefined,updatedAt:Date.now()}:t)})); }
+  function restoreTransaction(id:string) { setData(prev=>({...prev,transactions:prev.transactions.map(t=>t.id===id?{...t,status:'active',deletedAt:undefined,deletedVia:undefined,updatedAt:Date.now()}:t)})); }
   function removeImport(id:string,deletePosted:boolean){if(!statementReady||statementError)throw Error('Statement history is not ready.');setData(prev=>removeStatementImport(prev,id,deletePosted));}
   function permanentlyDeleteTransaction(id:string){permanentlyDeleteEntry(allData,id);setData(prev=>prev.transactions.some(t=>t.id===id&&t.status==='deleted')?permanentlyDeleteEntry(prev,id):prev);}
   function manageMaster(item:MasterItem) {
@@ -464,7 +464,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   function deleteTransaction(id: string) {
     setData((prev) => ({
       ...prev,
-      transactions: prev.transactions.map((t) => t.id === id ? {...t,status:'deleted',deletedAt:Date.now(),updatedAt:Date.now()} : t),
+      transactions: prev.transactions.map((t) => t.id === id ? {...t,status:'deleted',deletedVia:'individual',deletedAt:Date.now(),updatedAt:Date.now()} : t),
     }));
   }
 
@@ -605,7 +605,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       ...prev,
       receivables: prev.receivables.filter((r) => r.id !== id),
       repayments: prev.repayments.filter((r) => r.receivableId !== id),
-      transactions: prev.transactions.map((t) => t.receivableId === id ? {...t,status:'deleted',deletedAt:Date.now(),updatedAt:Date.now()} : t),
+      transactions: prev.transactions.map((t) => t.receivableId === id ? {...t,status:'deleted',deletedVia:'receivable-removal',deletedAt:Date.now(),updatedAt:Date.now()} : t),
     }));
   }
 
