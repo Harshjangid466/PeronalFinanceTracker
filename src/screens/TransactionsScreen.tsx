@@ -10,6 +10,7 @@ import {ExportReport,ImportExpenses} from '@/components/ReportTools';
 import { TransactionForm } from '@/components/TransactionForm';
 import {AlertInbox} from '@/components/AlertInbox';
 import {TransactionDetails} from '@/components/TransactionDetails';
+import {SwipeTransactionRow} from '@/components/SwipeTransactionRow';
 import {entrySource,entrySourceLabels} from '@/data/entryManagement';
 const StatementWorkspace=lazy(()=>import('@/components/StatementWorkspace').then(m=>({default:m.StatementWorkspace})));
 
@@ -198,16 +199,19 @@ export function TransactionsScreen({active=true}:{active?:boolean}) {
       <Sheet open={historyActive&&showExport} onClose={()=>setShowExport(false)} title="Reports & Export"><ExportReport /></Sheet>
       <Sheet open={historyActive&&showImport} onClose={()=>setShowImport(false)} title="Upload Expenses"><ImportExpenses /></Sheet>
       <Sheet open={historyActive&&showDeleted} onClose={()=>setShowDeleted(false)} title="Deleted Transactions">{deletedTransactions.length===0?<p>No deleted transactions.</p>:[...deletedTransactions].sort((a,b)=>b.date.localeCompare(a.date)||b.createdAt-a.createdAt).map(t=><div key={t.id} className="border p-3 rounded-xl mb-2 text-xs"><b>{t.heading||t.type} · {formatCurrency(t.amount)}</b><p>{t.date} · {t.type} · {t.majorCategory} · {t.person}</p><p>{entrySourceLabels[entrySource(t,allData).kind]}</p><p>Deleted: {t.deletedAt?new Date(t.deletedAt).toLocaleString('en-IN'):'Unknown'}</p><div className="flex flex-wrap gap-3 mt-2"><button className="text-cyan-600 underline" aria-label={`Review deleted entry ${t.id}`} onClick={()=>setSelected(t)}>Review</button><button className="bg-cyan-600 text-white rounded-xl p-2" onClick={()=>restoreTransaction(t.id)}>Restore</button><button className="text-rose-600 underline" aria-label={`Permanently delete entry ${t.id}`} onClick={()=>{setPurgeId(t.id);setPurgeError('');}}>Delete permanently</button></div></div>)}</Sheet>
+      {filtered.length>0&&<p id="transaction-swipe-hint" className="text-xs text-slate-500 mb-2 print:hidden">Swipe right to delete · Swipe left to edit</p>}
       {filtered.length===0?<p className="text-sm text-slate-500 text-center py-12">{data.transactions.length?'No matching transactions.':'No transactions yet.'}</p>:<div>
         {filtered.slice(0,visibleCount).map((t,index)=>{
           const credit=['Income Misc','Lent Recovered'].includes(t.type);
           const newDate=index===0||filtered[index-1].date!==t.date;
           return <div key={t.id}>
             {newDate&&<h2 className="text-xs font-bold text-slate-500 mt-5 mb-2">{formatDate(t.date)}</h2>}
-            <button onClick={()=>setSelected(t)} className="w-full text-left flex items-center justify-between gap-3 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 p-3 hover:bg-slate-50 dark:hover:bg-slate-800">
+            <SwipeTransactionRow onEdit={()=>setEditingTransaction(t)} onDelete={()=>setDeleteConfirmId(t.id)}>
+            <button aria-describedby="transaction-swipe-hint" onClick={()=>setSelected(t)} className="w-full text-left flex items-center justify-between gap-3 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 p-3 hover:bg-slate-50 dark:hover:bg-slate-800">
               <div className="min-w-0"><p className="font-semibold text-sm truncate text-slate-900 dark:text-slate-100">{t.heading||t.person||t.majorCategory||t.type}</p><p className="text-xs text-slate-500 truncate">{[t.majorCategory,t.subCategory,t.account].filter(Boolean).join(' · ')}</p></div>
               <div className="shrink-0 text-right"><p className={credit?'font-bold text-emerald-600':'font-bold text-slate-900 dark:text-slate-100'}>{credit?'+':'−'}{formatCurrency(t.amount)}</p><p className="text-[10px] text-slate-500">{t.type}</p></div>
             </button>
+            </SwipeTransactionRow>
           </div>;
         })}
       </div>}
