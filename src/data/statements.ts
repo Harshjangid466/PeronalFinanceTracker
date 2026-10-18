@@ -2,7 +2,8 @@ import type {AppData, Transaction, TransactionType} from './types';
 
 export interface VendorHabit {id:string;vendor:string;enabled:boolean;action:'post'|'ignore'|'review';category:string;subcategory:string;type:TransactionType;maxAmountMinor?:number;prefix?:boolean;}
 export interface NarrationHabit {id:string;terms:string[];enabled:boolean;action:'post'|'ignore'|'review';category:string;subcategory:string;}
-export interface ImportHabits {version:1;vendors:VendorHabit[];narrations:NarrationHabit[];morningEnabled:boolean;morningStart:string;morningEnd:string;morningAutoPost:boolean;unusualMultiplier:number;}
+export interface AmountHabit {id:string;amountMinor:number;enabled:boolean;category:string;subcategory:string;}
+export interface ImportHabits {version:1;vendors:VendorHabit[];narrations:NarrationHabit[];amounts?:AmountHabit[];morningEnabled:boolean;morningStart:string;morningEnd:string;morningAutoPost:boolean;unusualMultiplier:number;}
 export interface StatementRow {id:string;batchId:string;source:'paytm'|'bank';date:string;valueDate?:string;time?:string;vendor:string;note:string;account:string;reference:string;amountMinor:number;direction:'debit'|'credit'|'self';status:'pending'|'posted'|'matched'|'ignored';transactionId?:string;reason?:string;baselineAmountMinor?:number;sourceRow?:number;sourcePage?:number;originalAccount?:string;originalDate?:string;paymentMode?:string;}
 export interface StatementBatch {id:string;source:'paytm'|'bank';name:string;createdAt:number;from:string;to:string;count:number;rowIds?:string[];openingMinor?:number;closingMinor?:number;kind?:'bank'|'card'|'pluxee';sourceFormat?:string;sourceWarning?:string;}
 export interface Classification {action:'post'|'ignore'|'review';category:string;subcategory:string;type:TransactionType;reason:string;}
@@ -39,6 +40,11 @@ export function classify(row:StatementRow,habits:ImportHabits,history:StatementR
  const vendorRules=habits.vendors.filter(h=>h.enabled&&clean(h.vendor)&&(h.prefix?clean(row.vendor).startsWith(clean(h.vendor)):clean(h.vendor)===clean(row.vendor)));
  if(new Set(vendorRules.map(v=>`${v.action}|${v.category}|${v.subcategory}|${v.type}`)).size>1)return result('review','','','Overlapping vendor habits conflict');
  const vendor=vendorRules[0];
+ const amounts=(habits.amounts||[]).filter(h=>h.enabled&&h.amountMinor===row.amountMinor);
+ if(!vendor&&amounts.length){
+  if(new Set(amounts.map(h=>JSON.stringify([h.category,h.subcategory]))).size>1)return result('review','','','Amount habits conflict');
+  return result('post',amounts[0].category,amounts[0].subcategory,'Your amount habit');
+ }
  const unusual=vendor?.maxAmountMinor!==undefined&&row.amountMinor>vendor.maxAmountMinor;
  const samples=history.filter(r=>r.source==='paytm'&&r.id!==row.id&&r.direction==='debit'&&clean(r.vendor)===clean(row.vendor)&&['posted','matched'].includes(r.status)).map(r=>r.amountMinor).sort((a,b)=>a-b);
  const median=samples.length?samples[Math.floor(samples.length/2)]:0;
@@ -111,6 +117,11 @@ export function validateHabits(value:unknown):asserts value is ImportHabits{
  for(const r of [...h.vendors,...h.narrations])if(!r||typeof r.id!=='string'||typeof r.enabled!=='boolean'||!['post','ignore','review'].includes(r.action)||typeof r.category!=='string'||typeof r.subcategory!=='string')throw Error('Invalid habit rule');
  for(const v of h.vendors)if(typeof v.vendor!=='string'||!['Revenue Expense','CAPEX','Lent','Lent Recovered','To Ghar','Income Misc','Investment'].includes(v.type)||(v.maxAmountMinor!==undefined&&(!Number.isSafeInteger(v.maxAmountMinor)||v.maxAmountMinor<0)))throw Error('Invalid vendor habit');
  for(const r of h.narrations)if(!Array.isArray(r.terms)||r.terms.some(t=>typeof t!=='string'))throw Error('Invalid narration terms');
+ if(h.amounts!==undefined){
+  if(!Array.isArray(h.amounts))throw Error('Invalid amount habits');
+  const ids=new Set<string>();
+  for(const a of h.amounts){if(!a||typeof a.id!=='string'||!a.id||ids.has(a.id)||!Number.isSafeInteger(a.amountMinor)||a.amountMinor<=0||typeof a.enabled!=='boolean'||typeof a.category!=='string'||!a.category.trim()||typeof a.subcategory!=='string')throw Error('Invalid amount habit');ids.add(a.id);}
+ }
 }
 export function validateStatementBatches(value:unknown):asserts value is StatementBatch[]{
  if(!Array.isArray(value))throw Error('Invalid statement imports');const ids=new Set<string>();
