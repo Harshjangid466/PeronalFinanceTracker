@@ -2,7 +2,7 @@ import type { AppData, Transaction } from './types';
 import { migrateData } from './model';
 import { normalizeTransactionType } from './types';
 import {validateAlerts} from './alerts';
-import {validateStatementRows,mergeStatementRows} from './statements';
+import {validateStatementRows,mergeStatementRows,type StatementBatch} from './statements';
 export function mergeBackup(current:AppData, text:string):AppData {
   const parsed=JSON.parse(text); const source=parsed.data || parsed;
   if (parsed.backupFormatVersion && parsed.backupFormatVersion>4)throw new Error('This backup was made by a newer app version.');
@@ -31,7 +31,14 @@ export function mergeBackup(current:AppData, text:string):AppData {
     const merged=new Map<string,unknown>();
     const identify=(v:unknown)=>typeof v==='object' && v!==null ? String((v as {id?:string;name?:string}).id || (v as {name?:string}).name || JSON.stringify(v)) : JSON.stringify(v);
     for(const v of old)merged.set(identify(v),structuredClone(v));
-    for(const v of next){const id=identify(v); if(!merged.has(id))merged.set(id,structuredClone(v)); else if(key==='categories') {
+    for(const v of next){const id=identify(v); if(!merged.has(id))merged.set(id,structuredClone(v)); else if(key==='statementBatches') {
+      const old=merged.get(id) as StatementBatch,incoming=v as StatementBatch;
+      if(incoming.cashback){
+        if(old.from!==incoming.from||old.to!==incoming.to||old.count!==incoming.count||old.source!==incoming.source)throw Error('Statement details conflict in the backup.');
+        if(old.cashback&&(['account','earnedMinor','creditedMinor'] as const).some(k=>old.cashback![k]!==incoming.cashback![k]))throw Error('Cashback summary conflicts in the backup.');
+        merged.set(id,{...old,cashback:structuredClone(incoming.cashback)});
+      }
+    } else if(key==='categories') {
       const cat=merged.get(id) as {subCategories:string[]}; cat.subCategories=Array.from(new Set([...cat.subCategories,...(v as {subCategories:string[]}).subCategories]));
     }}
     result[key]=Array.from(merged.values());

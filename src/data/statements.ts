@@ -5,7 +5,9 @@ export interface NarrationHabit {id:string;terms:string[];enabled:boolean;action
 export interface AmountHabit {id:string;amountMinor:number;enabled:boolean;category:string;subcategory:string;}
 export interface ImportHabits {version:1;vendors:VendorHabit[];narrations:NarrationHabit[];amounts?:AmountHabit[];morningEnabled:boolean;morningStart:string;morningEnd:string;morningAutoPost:boolean;unusualMultiplier:number;}
 export interface StatementRow {id:string;batchId:string;source:'paytm'|'bank';date:string;valueDate?:string;time?:string;vendor:string;note:string;account:string;reference:string;amountMinor:number;direction:'debit'|'credit'|'self';status:'pending'|'posted'|'matched'|'ignored';transactionId?:string;reason?:string;baselineAmountMinor?:number;sourceRow?:number;sourcePage?:number;originalAccount?:string;originalDate?:string;paymentMode?:string;}
-export interface StatementBatch {id:string;source:'paytm'|'bank';name:string;createdAt:number;from:string;to:string;count:number;rowIds?:string[];openingMinor?:number;closingMinor?:number;kind?:'bank'|'card'|'pluxee';sourceFormat?:string;sourceWarning?:string;}
+export interface StatementRow {cashbackEarnedMinor?:number;cashbackCredit?:'cycle'|'rebate';}
+export interface CashbackSummary {account:string;earnedMinor?:number;creditedMinor?:number;}
+export interface StatementBatch {id:string;source:'paytm'|'bank';name:string;createdAt:number;from:string;to:string;count:number;rowIds?:string[];openingMinor?:number;closingMinor?:number;kind?:'bank'|'card'|'pluxee';sourceFormat?:string;sourceWarning?:string;cashback?:CashbackSummary;}
 export interface Classification {action:'post'|'ignore'|'review';category:string;subcategory:string;type:TransactionType;reason:string;}
 export const clean=(s:string)=>s.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu,' ').trim();
 export function rowId(source:string,account:string,ref:string,date:string,minor:number,vendor:string){
@@ -105,11 +107,15 @@ export function reconciliationAdvice(row:StatementRow,txns:Transaction[]){
 }
 export function mergeStatementRows(old:StatementRow[],incoming:StatementRow[]):StatementRow[]{
  const map=new Map(old.map(r=>[r.id,r]));
- for(const r of incoming){const existing=map.get(r.id);if(existing&&(existing.amountMinor!==r.amountMinor||existing.date!==r.date||existing.account!==r.account||existing.direction!==r.direction))throw Error('The same statement reference has conflicting details. Review the file.');if(!existing)map.set(r.id,r);}
+ for(const r of incoming){const existing=map.get(r.id);if(existing&&(existing.amountMinor!==r.amountMinor||existing.date!==r.date||existing.account!==r.account||existing.direction!==r.direction))throw Error('The same statement reference has conflicting details. Review the file.');
+  if(!existing)map.set(r.id,r);
+  else{const extra:Partial<StatementRow>={};for(const field of ['cashbackEarnedMinor','cashbackCredit'] as const){if(r[field]===undefined)continue;if(existing[field]!==undefined&&existing[field]!==r[field])throw Error('Cashback details conflict with an earlier import. Review the statement.');Object.assign(extra,{[field]:r[field]});}map.set(r.id,{...existing,...extra});}
+ }
  return [...map.values()];
 }
 export function validateStatementRows(value:unknown):asserts value is StatementRow[]{
  if(!Array.isArray(value))throw Error('Invalid statement history');const ids=new Set<string>();
+ for(const r of value){if(r?.cashbackEarnedMinor!==undefined&&(!Number.isSafeInteger(r.cashbackEarnedMinor)||r.source!=='bank'))throw Error('Invalid earned cashback');if(r?.cashbackCredit!==undefined&&(!['cycle','rebate'].includes(r.cashbackCredit)||r.source!=='bank'||r.direction!=='credit'))throw Error('Invalid cashback credit');}
  for(const r of value){if(!r||typeof r.id!=='string'||ids.has(r.id)||!/^\d{4}-\d{2}-\d{2}$/.test(r.date)||new Date(r.date+'T00:00:00Z').toISOString().slice(0,10)!==r.date||!Number.isSafeInteger(r.amountMinor)||r.amountMinor<=0||!['debit','credit','self'].includes(r.direction)||!['pending','posted','matched','ignored'].includes(r.status)||!['paytm','bank'].includes(r.source)||['vendor','account','note','reference','batchId'].some(k=>typeof r[k]!=='string'))throw Error('Invalid statement row');if(r.valueDate!==undefined&&(typeof r.valueDate!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(r.valueDate)||Number.isNaN(Date.parse(r.valueDate))||new Date(r.valueDate+'T00:00:00Z').toISOString().slice(0,10)!==r.valueDate))throw Error('Invalid statement value date');ids.add(r.id);}
 }
 export function validateHabits(value:unknown):asserts value is ImportHabits{
@@ -125,6 +131,7 @@ export function validateHabits(value:unknown):asserts value is ImportHabits{
 }
 export function validateStatementBatches(value:unknown):asserts value is StatementBatch[]{
  if(!Array.isArray(value))throw Error('Invalid statement imports');const ids=new Set<string>();
+ for(const b of value){const c=b?.cashback;if(c!==undefined&&(!c||b.source!=='bank'||b.kind!=='card'||typeof c.account!=='string'||!c.account||[c.earnedMinor,c.creditedMinor].some(n=>n!==undefined&&!Number.isSafeInteger(n))||c.creditedMinor!==undefined&&c.creditedMinor<0))throw Error('Invalid cashback summary');}
  for(const b of value){if(!b||typeof b.id!=='string'||ids.has(b.id)||!['paytm','bank'].includes(b.source)||typeof b.name!=='string'||!Number.isFinite(b.createdAt)||!Number.isSafeInteger(b.count)||b.count<1||!/^\d{4}-\d{2}-\d{2}$/.test(b.from)||!/^\d{4}-\d{2}-\d{2}$/.test(b.to)||b.from>b.to||b.kind!==undefined&&!['bank','card','pluxee'].includes(b.kind)||[b.openingMinor,b.closingMinor].some(n=>n!==undefined&&!Number.isSafeInteger(n))||b.rowIds!==undefined&&(!Array.isArray(b.rowIds)||b.rowIds.some((id:unknown)=>typeof id!=='string')||new Set(b.rowIds).size!==b.rowIds.length))throw Error('Invalid statement import');ids.add(b.id);}
 }
 export function classifyImport(rows:StatementRow[],data:AppData,habits:ImportHabits,recheckPending=false){
