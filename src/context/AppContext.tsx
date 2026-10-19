@@ -232,7 +232,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       mergeStatementRows(prev.statementRows||[],rows);
       const habits=prev.importHabits||defaultImportHabits(),next=applyStatementRules(prev,rows,habits,batch);
       const batches=prev.statementBatches||[];
-      return {...next,importHabits:habits,statementBatches:batches.some(b=>b.id===batch.id)?batches:[batch,...batches],actionLog:[...next.actionLog,{id:uid(),timestamp:Date.now(),actionType:'import',entityType:'statement',entityId:batch.id,description:`Imported ${batch.source} statement: ${rows.length} source rows; applied current rules to new and pending rows`}]};
+      return {...next,statementRows:mergeStatementRows(next.statementRows||[],rows),importHabits:habits,statementBatches:batches.some(b=>b.id===batch.id)?batches:[batch,...batches],actionLog:[...next.actionLog,{id:uid(),timestamp:Date.now(),actionType:'import',entityType:'statement',entityId:batch.id,description:`Imported ${batch.source} statement: ${rows.length} source rows; applied current rules to new and pending rows`}]};
     });
   }
   function postPendingStatements(ids:string[],habits:ImportHabits,vendorId?:string){
@@ -280,7 +280,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if(action==='post'){
         const posted=saveStatementPosting(prev.transactions,row,statementTransaction(row,details));transactionId=posted.saved.id;next={...prev,transactions:posted.transactions,categories:ensureStatementCategory(prev,posted.saved)};
       }
-      return {...next,people:details.person&&!next.people.includes(details.person)?[...next.people,details.person]:next.people,statementRows:prev.statementRows!.map(r=>r.id===id?{...row,status:action==='ignore'?'ignored':action==='match'?'matched':'posted',transactionId,reason:reason||'Reviewed manually'}:r),actionLog:[...next.actionLog,{id:uid(),timestamp:Date.now(),actionType:'review',entityType:'statement',entityId:id,description:`Statement row ${action}: ${reason||'confirmed'}`}]};
+      return {...next,incomeTypes:action==='post'&&details.type==='Income Misc'&&details.incomeType&&!next.incomeTypes.includes(details.incomeType)?[...next.incomeTypes,details.incomeType]:next.incomeTypes,people:details.person&&!next.people.includes(details.person)?[...next.people,details.person]:next.people,statementRows:prev.statementRows!.map(r=>r.id===id?{...row,status:action==='ignore'?'ignored':action==='match'?'matched':'posted',transactionId,reason:reason||'Reviewed manually'}:r),actionLog:[...next.actionLog,{id:uid(),timestamp:Date.now(),actionType:'review',entityType:'statement',entityId:id,description:`Statement row ${action}: ${reason||'confirmed'}`}]};
     });
   }
   function saveBankAlerts(alerts:BankAlert[]) {setData(prev=>({...prev,bankAlerts:[...(prev.bankAlerts||[]),...alerts]}));}

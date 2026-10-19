@@ -3,7 +3,33 @@ function load(file){file=path.resolve(file);if(cache.has(file))return cache.get(
 const {parseBankPdf}=load('src/data/bankPdf.ts');const item=(str,x,y)=>({str,x,y}),page=(items,width=595)=>({width,height:842,items});let checks=0;function test(name,fn){fn();checks++;console.log('PASS '+name);}
 const axis=(extra=false)=>page([item('Axis Bank',20,820),item('Previous Balance - Payments - Credits + Purchase + Cash Advance + Other Debit&Charges =Total Payment Due',30,790),...[['100.00 Dr',40],['10.00',110],['0.00',170],['20.00',210],['0.00',273],['0.00',342],['110.00',404]].map(([s,x])=>item(s,x,775)),item('DATE',47,740),item('TRANSACTION DETAILS',135,740),item('MERCHANT CATEGORY',292,740),item('AMOUNT (Rs.)',418,740),...(extra?[item('CASHBACK EARNED',504,740)]:[]),item('01/04/2026',34,700),item('EXAMPLE SHOP',89,700),item('Retail',292,700),item('20.00 Dr',402,700),...(extra?[item('999.00 Cr',490,700)]:[]),item('02/04/2026',34,670),item('PAYMENT',89,670),item('10.00 Cr',402,670),...(extra?[item('0.00 Dr',490,670)]:[])]);
 test('Axis transaction amounts exclude cashback-earned column',()=>{for(const extra of [true,false]){const r=parseBankPdf([axis(extra)],'b','Card');assert.equal(r.rows.length,2);assert.equal(r.debitMinor,2000);assert.equal(r.creditMinor,1000);}});
+test('Cashback is signed row metadata with independent printed controls, never extra movements',()=>{
+ const p=axis(true);p.items=p.items.map(i=>i.str==='999.00 Cr'?{...i,str:'2.00 Cr'}:i.str==='0.00 Dr'?{...i,str:'0.50 Dr'}:i);
+ p.items.push(item('**** End of Statement ****',40,640),item('Cashback Earned',40,450),item('Cashback Credited',310,450),item('1.50',70,430),item('0.00',350,430));
+ const r=parseBankPdf([p],'b','Card');assert.equal(r.rows.length,2);assert.equal(r.rows[0].cashbackEarnedMinor,200);assert.equal(r.rows[1].cashbackEarnedMinor,-50);assert.equal(r.cashback.earnedMinor,150);assert.equal(r.cashback.creditedMinor,0);assert.equal(r.creditMinor,1000);
+});
 test('Partial Axis extraction fails source totals',()=>assert.throws(()=>parseBankPdf([{...axis(),items:axis().items.filter(i=>i.y!==700)}],'b','Card')));
+test('Card summary below final refund cannot replace the refund amount',()=>{
+ const p=axis();p.items=p.items.map(i=>i.str==='10.00'?{...i,str:'13.00'}:i.str==='110.00'?{...i,str:'107.00'}:i);
+ p.items.push(item('03/04/2026',34,640),item('REFUND',89,640),item('3.00 Cr',402,640),item('**** End of Statement ****',40,620),item('Cashback Earned',40,450),item('196.00',402,430));
+ const r=parseBankPdf([p],'b','Card');assert.equal(r.rows.length,3);assert.equal(r.creditMinor,1300);assert.equal(r.rows[2].amountMinor,300);assert.equal(r.rows[2].direction,'credit');assert.equal(r.rows[2].note,'REFUND');
+});
+test('Amount selection stays on dated row even without a recognised footer',()=>{
+ const p=axis();p.items.push(item('Unfamiliar summary',40,450),item('196.00',402,430));
+ const r=parseBankPdf([p],'b','Card');assert.equal(r.creditMinor,1000);assert.equal(r.rows[1].direction,'credit');assert.match(r.warning,/non-row amounts/);
+});
+test('Repayment of full opening balance is included in credits, not erased',()=>{
+ const p=axis();p.items=p.items.map(i=>i.str==='10.00'?{...i,str:'100.00'}:i.str==='10.00 Cr'?{...i,str:'100.00 Cr'}:i.str==='110.00'?{...i,str:'20.00'}:i);
+ const r=parseBankPdf([p],'b','Card');assert.equal(r.openingMinor,10000);assert.equal(r.creditMinor,10000);assert.equal(r.closingMinor,2000);assert.equal(r.rows.length,2);
+});
+test('Ambiguous amounts on the same baseline are blocked',()=>{const p=axis();p.items.push(item('196.00',450,670));assert.throws(()=>parseBankPdf([p],'b','Card'),/amount is unclear/);});
+test('Equal omitted debits and credits cannot hide behind a correct balance',()=>{
+ const p=axis();p.items=p.items.map(i=>i.str==='10.00'?{...i,str:'30.00'}:i.str==='20.00'?{...i,str:'40.00'}:i);
+ assert.throws(()=>parseBankPdf([p],'b','Card'),e=>/Debits: source/.test(e.message)&&/Credits.*source/.test(e.message)&&/difference/.test(e.message));
+});
+test('Inconsistent source summary is diagnosed without invented adjustments',()=>{
+ const p=axis();p.items=p.items.map(i=>i.str==='110.00'?{...i,str:'111.00'}:i);assert.throws(()=>parseBankPdf([p],'b','Card'),/summary itself needs checking/);
+});
 const hdfc=page([item('Swiggy HDFC Bank Credit Card Statement',20,820),item('PREVIOUS STATEMENT DUES',40,620),...[['100.00',70],['10.00',176],['20.00',280],['0.00',375],['110.00',453]].map(([s,x])=>item(s,x,590)),item('DATE & TIME',169,300),item('TRANSACTION DESCRIPTION',260,300),item('AMOUNT',528,300),item('01/04/2026| 09:10',169,270),item('EXAMPLE SHOP',260,270),item('C',531,270),item('20.00',536,270),item('02/04/2026| 20:16',169,255),item('CREDIT CARD PAYMENT (Ref# 000001)',260,255),item('+',525,255),item('C',531,255),item('10.00',536,255),item('Cash Back Summary',169,210),item('Reward unrelated',260,180),item('999.00',536,180)]);
 test('HDFC currency glyph is not a credit flag, summary rewards excluded',()=>{const r=parseBankPdf([hdfc],'b','Card');assert.equal(r.rows[0].direction,'debit');assert.equal(r.rows[1].direction,'credit');assert.equal(r.rows[1].reference,'000001');assert.equal(r.rows[0].time,'09:10');});
 const icici=page([item('ICICI Bank',20,820),item('Total Amount due',80,567),item('110.00',80,549),item('Previous Balance Purchases / Charges Cash Advances Payments / Credits',220,567),...[['100.00',235],['20.00',322],['0.00',422],['`10.00',495]].map(([s,x])=>item(s,x,549)),item('Date',207,465),item('SerNo.',262,465),item('Transaction Details',305,465),item('Reward Points',443,465),item('Amount',521,465),item('01/04/2026',207,429),item('000001',252,429),item('EXAMPLE SHOP',305,429),item('-999',447,429),item('20.00',529,429),item('02/04/2026',207,400),item('000002',252,400),item('PAYMENT',305,400),item('10.00 CR',529,400),item('International Spends',208,345)]);
