@@ -1,5 +1,5 @@
 export const AI_MODEL='gpt-5.6-terra';
-export const AI_PATH='/.netlify/functions/financial-analysis';
+export const AI_PATH='/api/financial-analysis';
 export const MAX_AI_BYTES=60000;
 export type FactKind='total'|'category'|'vendor'|'card'|'weekday'|'trend'|'allocation'|'review'|'petty-vendor'|'petty-amount'|'income-trend';
 export interface AIFact {id:string;kind:FactKind;label:string;currentMinor:number|null;previousMinor:number|null;count:number;previousCount:number|null;}

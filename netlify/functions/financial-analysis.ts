@@ -44,4 +44,4 @@ export async function analyse(request:Request,env:Environment,provider:typeof fe
 }
 export default (request:Request)=>analyse(request,(globalThis as typeof globalThis&{process?:{env:Environment}}).process?.env||{});
 // Authentication protects the provider key; the platform cap also bounds repeated authorised calls.
-export const config={rateLimit:{action:'rate_limit',aggregateBy:'domain',windowLimit:10,windowSize:60}};
+export const config={path:'/api/financial-analysis',rateLimit:{action:'rate_limit',aggregateBy:['ip','domain'],windowLimit:10,windowSize:60}};
