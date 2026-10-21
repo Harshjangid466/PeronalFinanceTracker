@@ -7,7 +7,7 @@ import type {Transaction} from '@/data/types';
 import {Sheet} from './Sheet';
 
 export function StatementImportSummary({batch,active,onEdit}:{batch:StatementBatch;active:boolean;onEdit:(t:Transaction)=>void}){
- const {allData}=useApp();const summary=importSummary(batch,allData.statementRows||[],allData.transactions);
+ const {allData}=useApp();const summary=importSummary(batch,allData.statementRows||[],allData.transactions,allData.cardSettlements);
  const {controls,recorded,expenses,categories,expenseMinor}=summary;
  const [selection,setSelection]=useState<string|null|undefined>(),[limit,setLimit]=useState(50);
  const selected=selection===null?recorded:expenses.filter(t=>(t.majorCategory||'Uncategorised')===selection);

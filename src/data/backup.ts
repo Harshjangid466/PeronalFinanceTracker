@@ -13,6 +13,7 @@ export function mergeBackup(current:AppData, text:string):AppData {
   arrayKeys.push('bankAlerts');
   arrayKeys.push('statementBatches');
   arrayKeys.push('dismissedHabitSuggestions');
+  arrayKeys.push('cardSettlements');
   for(const key of arrayKeys) if(source[key]!==undefined && !Array.isArray(source[key]))throw new Error(`Invalid ${key} in backup.`);
   const ids=new Set<string>();
   for(const t of source.transactions){
@@ -22,7 +23,7 @@ export function mergeBackup(current:AppData, text:string):AppData {
     if(!/^\d{4}-\d{2}-\d{2}$/.test(t.date) || Number.isNaN(Date.parse(t.date)))throw new Error('Invalid transaction date.');
     if(t.status && !['active','cancelled','deleted'].includes(t.status))throw new Error('Invalid transaction status.');
   }
-  const incoming=migrateData({...structuredClone(current),...source,masters:source.masters,sourceMappings:source.sourceMappings,transactions:source.transactions.map((t:Transaction)=>({...t,type:normalizeTransactionType(t.type),customFields:t.customFields || {},status:t.status || 'active'}))});
+  const incoming=migrateData({...structuredClone(current),...source,cardSettlements:source.cardSettlements||[],masters:source.masters,sourceMappings:source.sourceMappings,transactions:source.transactions.map((t:Transaction)=>({...t,type:normalizeTransactionType(t.type),customFields:t.customFields || {},status:t.status || 'active'}))});
   const result=structuredClone(current) as AppData & Record<string,unknown>;
   result.permanentlyDeletedTransactionIds=[...new Set([...(current.permanentlyDeletedTransactionIds||[]),...(incoming.permanentlyDeletedTransactionIds||[])])];
   result.removedStatementBatchIds=[...new Set([...(current.removedStatementBatchIds||[]),...(incoming.removedStatementBatchIds||[])])];

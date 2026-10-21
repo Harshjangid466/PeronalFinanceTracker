@@ -20,6 +20,7 @@ import {
 } from '@/data/types';
 import { loadData, saveData, uid } from '@/data/storage';
 import {loadStatementArchive,saveStatementArchive} from '@/data/statementStore';
+import {applyCardOffset,previewCardOffset,undoCardOffset as undoOffset,cardOffsetRestoreBlock,isCardRow,cardKind,type CardKind,type CardOffsetDetails} from '@/data/cardReconciliation';
 import {classifyImport,pendingRuleMatches,mergeStatementRows,rowState,batchUndoCandidates,saveStatementPosting,type StatementRow,type StatementBatch,type ImportHabits} from '@/data/statements';
 import {defaultImportHabits} from '@/data/approvedHabits';
 import { migrateData, projectMasters, financialEffect, dependencies, idFields, masterFields, patternKey, visibleField, type MasterItem, type MasterKind } from '@/data/model';
@@ -87,6 +88,9 @@ export interface SmallExpenseInsight {
 }
 
 interface AppContextValue {
+  reviewCardRow:(id:string,kind?:CardKind,hold?:boolean,reason?:string)=>void;
+  settleCardRows:(ids:string[],details:CardOffsetDetails)=>void;
+  undoCardOffset:(id:string)=>void;
   statementReady:boolean;
   statementError:string;
   importStatement:(rows:StatementRow[],batch:StatementBatch)=>void;
@@ -190,7 +194,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [allData, setStoredData] = useState<AppData>(() => loadData());
   const [statementReady,setStatementReady]=useState(false);
   const [statementError,setStatementError]=useState('');
-  useEffect(()=>{let cancelled=false;loadStatementArchive().then(archive=>{if(cancelled)return;setStoredData(prev=>applyRemovalTombstones({...prev,statementRows:mergeStatementRows(archive.rows,prev.statementRows||[]),statementBatches:[...new Map([...archive.batches,...(prev.statementBatches||[])].map(b=>[b.id,b])).values()]}));setStatementReady(true);}).catch(()=>{if(!cancelled)setStatementError('Statement history could not be opened. Import is disabled; existing financial entries are retained.');});return()=>{cancelled=true;};},[]);
+  useEffect(()=>{let cancelled=false;loadStatementArchive().then(archive=>{if(cancelled)return;setStoredData(prev=>migrateData(applyRemovalTombstones({...prev,statementRows:mergeStatementRows(archive.rows,prev.statementRows||[]),statementBatches:[...new Map([...archive.batches,...(prev.statementBatches||[])].map(b=>[b.id,b])).values()]})));setStatementReady(true);}).catch(()=>{if(!cancelled)setStatementError('Statement history could not be opened. Import is disabled; existing financial entries are retained.');});return()=>{cancelled=true;};},[]);
   const bankCapture=useBankCapture(alerts=>setStoredData(prev=>auditChanges(prev,migrateData({...prev,bankAlerts:mergeCaptured(prev.bankAlerts||[],alerts)}))));
   const data = useMemo(()=>({...allData,transactions:allData.transactions.filter(t=>t.status==='active')}),[allData]);
   function setData(update: AppData | ((prev:AppData)=>AppData)) {
@@ -200,6 +204,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
     });
   }
   function configure(updates:Partial<AppData>) { setData(prev=>({...prev,...updates})); }
+  function reviewCardRow(id:string,kind?:CardKind,hold?:boolean,reason='Awaiting refund / next statement'){
+    if(!statementReady||statementError)throw Error('Statement history is not ready.');
+    const update=(prev:AppData)=>{const row=prev.statementRows?.find(r=>r.id===id);if(!row||!isCardRow(row,prev.statementBatches||[])||row.cardSettlementId)throw Error('Choose an available credit-card movement.');if(kind&&(!Object.prototype.hasOwnProperty.call({purchase:1,payment:1,cashback:1,refund:1,fee:1,other:1},kind)))throw Error('Choose a valid card movement type.');if(kind&&((['payment','refund'].includes(kind)&&row.direction!=='credit')||(['purchase','fee'].includes(kind)&&row.direction!=='debit')))throw Error('Movement type does not agree with debit/credit direction.');return {...prev,statementRows:prev.statementRows!.map(r=>r.id===id?{...r,...(kind?{cardKind:kind}:{}),...(hold===undefined?{}:{cardHold:hold?{reason:reason.trim()||'Awaiting refund / next statement',createdAt:Date.now()}:undefined})}:r),actionLog:[...prev.actionLog,{id:uid(),timestamp:Date.now(),actionType:'review',entityType:'statement',entityId:id,description:kind?`Card movement classified: ${kind}`:hold?'Card movement held for later reconciliation':'Card movement released from hold'}]};};update(allData);setData(update);
+  }
+  function settleCardRows(ids:string[],details:CardOffsetDetails){
+    if(!statementReady||statementError)throw Error('Statement history is not ready.');
+    if(previewCardOffset(allData,ids).differenceMinor>0&&allData.customFields.some(f=>f.enabled&&f.required&&(!f.applicableTypes.length||f.applicableTypes.includes('Revenue Expense'))&&visibleField(f,allData.customFields,details.customFields||{})&&(()=>{const v=details.customFields?.[f.key];return v===undefined||v===null||v===''||Array.isArray(v)&&!v.length;})()))throw Error('Fill required custom fields for the difference expense.');
+    const options={...details,id:'card-offset-'+uid(),now:Date.now()};applyCardOffset(allData,ids,options);setData(prev=>{if(ids.every(id=>prev.statementRows?.find(r=>r.id===id)?.cardSettlementId))return prev;const next=applyCardOffset(prev,ids,options);return {...next,actionLog:[...next.actionLog,{id:uid(),timestamp:options.now,actionType:'review',entityType:'cardSettlements',entityId:options.id,description:`Confirmed ${ids.length} card movements; booked only the agreed net difference`}]};});
+  }
+  function undoCardOffset(id:string){if(!statementReady||statementError)throw Error('Statement history is not ready.');const now=Date.now();undoOffset(allData,id,now);setData(prev=>{if(prev.cardSettlements?.find(g=>g.id===id)?.status==='undone')return prev;const next=undoOffset(prev,id,now);return {...next,actionLog:[...next.actionLog,{id:uid(),timestamp:now,actionType:'undo',entityType:'cardSettlements',entityId:id,description:'Undid card offset; restored original entries and source review states'}]};});}
   function statementTransaction(row:StatementRow,details:Partial<Transaction>,batch?:StatementBatch):Transaction{
     const type=details.type||'Revenue Expense',now=Date.now();
     return {id:uid(),entrySource:statementEntrySource(row,batch||allData.statementBatches?.find(b=>b.id===row.batchId)),schemaVersion:4,type,amount:row.amountMinor/100,amountMinor:row.amountMinor,currency:'INR',date:row.date,createdAt:now,updatedAt:now,majorCategory:details.majorCategory||'',subCategory:details.subCategory||'',paymentMode:details.paymentMode||'UPI',account:row.account,person:details.person||'',heading:details.heading||row.vendor,remarks:details.remarks??row.note,customFields:details.customFields||{},financialEffect:financialEffect(type,row.amountMinor),status:'active',purchasedFrom:details.purchasedFrom||'',paymentFor:details.paymentFor||'',incomeType:details.incomeType||'',investmentType:details.investmentType||'',statementReferences:row.reference?[row.reference]:[]};
@@ -247,6 +261,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }
   function reviewStatement(id:string,action:'ignore'|'reopen'|'match'|'post',details:Partial<Transaction>={},reason=''){
     const savedRow=allData.statementRows?.find(r=>r.id===id);if(!savedRow)throw Error('Statement row not found.');
+    if(savedRow.cardSettlementId)throw Error('Undo this card offset before reopening or posting its source movements.');
+    if(isCardRow(savedRow,allData.statementBatches||[])&&cardKind(savedRow)==='payment'&&['post','match'].includes(action))throw Error('A bill payment settles the card balance. Confirm it without posting spending or income.');
+    if(savedRow.cardHold&&action==='post')throw Error('Release this movement from hold before posting it.');
     const current={...savedRow,account:details.account||savedRow.account};
     if(action==='ignore'&&!reason.trim())throw Error('Enter a reason for ignoring this row.');
     if(action==='post'){
@@ -288,7 +305,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   function logAction(action:string,entity:string,description:string) {
     setStoredData(prev=>({...prev,actionLog:[...prev.actionLog,{id:uid(),timestamp:Date.now(),actionType:action,entityType:entity,entityId:entity,description}]}));
   }
-  function restoreTransaction(id:string) { setData(prev=>({...prev,transactions:prev.transactions.map(t=>t.id===id?{...t,status:'active',deletedAt:undefined,deletedVia:undefined,updatedAt:Date.now()}:t)})); }
+  function restoreTransaction(id:string) {const blocked=cardOffsetRestoreBlock(allData,id);if(blocked)throw Error(blocked);setData(prev=>{const blocked=cardOffsetRestoreBlock(prev,id);if(blocked)throw Error(blocked);return {...prev,transactions:prev.transactions.map(t=>t.id===id?{...t,status:'active',deletedAt:undefined,deletedVia:undefined,updatedAt:Date.now()}:t)};}); }
   function removeImport(id:string,deletePosted:boolean){if(!statementReady||statementError)throw Error('Statement history is not ready.');setData(prev=>removeStatementImport(prev,id,deletePosted));}
   function permanentlyDeleteTransaction(id:string){permanentlyDeleteEntry(allData,id);setData(prev=>prev.transactions.some(t=>t.id===id&&t.status==='deleted')?permanentlyDeleteEntry(prev,id):prev);}
   function manageMaster(item:MasterItem) {
@@ -1137,7 +1154,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }
 
   const value: AppContextValue = {
-    statementReady,statementError,importStatement,reviewStatement,postPendingStatements,undoStatementBatch,
+    statementReady,statementError,importStatement,reviewStatement,postPendingStatements,undoStatementBatch,reviewCardRow,settleCardRows,undoCardOffset,
     bankCapture,
     saveBankAlerts,updateBankAlert,
     data, allData, deletedTransactions:allData.transactions.filter(t=>t.status==='deleted'),restoreTransaction,removeStatementImport:removeImport,permanentlyDeleteTransaction,configure,logAction,manageMaster,removeMaster,importTransactions,

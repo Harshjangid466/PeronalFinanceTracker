@@ -1,7 +1,7 @@
 import type {Transaction,AppData} from './types';
 import {entrySource,entrySourceLabels} from './entryManagement';
 
-export const deletionLabels={individual:'Deleted individually', 'import-removal':'Import removed', 'import-undo':'Import posting undone', 'receivable-removal':'Linked receivable deleted',unknown:'Not recorded'};
+export const deletionLabels={individual:'Deleted individually', 'import-removal':'Import removed', 'import-undo':'Import posting undone', 'receivable-removal':'Linked receivable deleted','cc-offset':'Card purchase/refund offset',unknown:'Not recorded'};
 export const emptyDeletedFilters={search:'',origin:'',account:'',method:'',min:'',max:'',postedFrom:'',postedTo:'',deletedFrom:'',deletedTo:'',sort:'deleted-newest'};
 export type DeletedFilters=typeof emptyDeletedFilters;
 export function localTimestampDay(timestamp?:number){

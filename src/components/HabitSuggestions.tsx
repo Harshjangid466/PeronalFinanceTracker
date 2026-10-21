@@ -4,9 +4,10 @@ import {suggestHabits} from '@/data/habitSuggestions';
 import {defaultImportHabits} from '@/data/approvedHabits';
 import {formatCurrency,formatDate} from '@/data/format';
 import {inputStyle,buttonStyle} from './ConfigurationTools';
-export function HabitSuggestions(){
+import type {StatementRow} from '@/data/statements';
+export function HabitSuggestions({rows}:{rows?:StatementRow[]}={}){
  const {allData:data,configure}=useApp();const h=data.importHabits||defaultImportHabits();
- const suggestions=useMemo(()=>suggestHabits(data.statementRows||[],h,data.transactions),[data.statementRows,h,data.transactions]);
+ const suggestions=useMemo(()=>suggestHabits(rows||data.statementRows||[],h,data.transactions),[rows,data.statementRows,h,data.transactions]);
  const [categories,setCategories]=useState<Record<string,string>>({});const [limits,setLimits]=useState<Record<string,boolean>>({});const [showAll,setShowAll]=useState(false);const [error,setError]=useState('');
  const visible=suggestions.filter(s=>!(data.dismissedHabitSuggestions||[]).includes(s.id));
  function approve(s:typeof suggestions[number]){const category=categories[s.id]??s.category;if(!data.categories.some(c=>c.name===category)){setError('Choose a category before approving this habit.');return;}configure({importHabits:{...h,vendors:[{id:'suggestion-'+Date.now(),vendor:s.vendor,enabled:true,action:'post',type:'Revenue Expense',category,subcategory:'',maxAmountMinor:limits[s.id]===false?undefined:s.maxMinor},...h.vendors]}});setError('');}
