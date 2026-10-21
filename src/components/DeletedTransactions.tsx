@@ -4,6 +4,7 @@ import type {Transaction} from '@/data/types';
 import {formatCurrency,formatDate} from '@/data/format';
 import {entrySource,entrySourceLabels} from '@/data/entryManagement';
 import {deletionLabels,emptyDeletedFilters,filterDeletedEntries} from '@/data/deletedEntries';
+import {cardOffsetLocks,cardOffsetRestoreBlock} from '@/data/cardReconciliation';
 
 export function DeletedTransactions({onReview,onPurge}:{onReview:(t:Transaction)=>void;onPurge:(id:string)=>void}){
  const {allData,deletedTransactions,restoreTransaction}=useApp(),[filters,setFilters]=useState({...emptyDeletedFilters});
@@ -26,7 +27,8 @@ export function DeletedTransactions({onReview,onPurge}:{onReview:(t:Transaction)
   {rows.length===0?<p className="text-sm text-slate-500">{deletedTransactions.length?'No deleted entries match these filters.':'No deleted transactions.'}</p>:rows.map(t=>{const source=entrySource(t,allData);return <div key={t.id} className="border dark:border-slate-700 p-3 rounded-xl text-xs space-y-1">
    <b>{t.heading||t.type} · {formatCurrency(t.amountMinor/100)}</b><p>{formatDate(t.date)} · {t.majorCategory} · {t.account}</p><p>{entrySourceLabels[source.kind]}{source.fileName&&<> · <span className="break-all">{source.fileName}</span></>}</p>
    <p>Posted: {t.createdAt?new Date(t.createdAt).toLocaleString('en-IN'):'Unknown'}</p><p>Deleted: {t.deletedAt?new Date(t.deletedAt).toLocaleString('en-IN'):'Unknown'}</p><p>How deleted: {deletionLabels[t.deletedVia||'unknown']}</p>
-   <div className="flex flex-wrap gap-3 pt-2"><button className="text-cyan-600 underline" aria-label={`Review deleted entry ${t.id}`} onClick={()=>onReview(t)}>Review</button><button className="bg-cyan-600 text-white rounded-xl p-2" onClick={()=>restoreTransaction(t.id)}>Restore</button><button className="text-rose-600 underline" aria-label={`Permanently delete entry ${t.id}`} onClick={()=>onPurge(t.id)}>Delete permanently</button></div>
+   {cardOffsetRestoreBlock(allData,t.id)&&<p>{cardOffsetRestoreBlock(allData,t.id)}</p>}
+   <div className="flex flex-wrap gap-3 pt-2"><button className="text-cyan-600 underline" aria-label={`Review deleted entry ${t.id}`} onClick={()=>onReview(t)}>Review</button><button disabled={!!cardOffsetRestoreBlock(allData,t.id)} className="bg-cyan-600 text-white rounded-xl p-2 disabled:opacity-40" onClick={()=>restoreTransaction(t.id)}>Restore</button><button disabled={cardOffsetLocks(allData,t.id)} className="text-rose-600 underline disabled:opacity-40" aria-label={`Permanently delete entry ${t.id}`} onClick={()=>onPurge(t.id)}>Delete permanently</button></div>
   </div>;})}
  </div>;
 }
