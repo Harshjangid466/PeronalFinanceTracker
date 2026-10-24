@@ -1,4 +1,4 @@
-import {lazy,Suspense,useMemo,useState} from 'react';
+import {lazy,Suspense,useEffect,useMemo,useState} from 'react';
 import {useApp} from '@/context/AppContext';
 import {spendingCoach,reductionScenario,answerCoach,coachQuestions,coachMoney as money} from '@/data/spendingCoach';
 import {sumMinor} from '@/data/dashboardAnalytics';
@@ -16,9 +16,10 @@ const CloudIntelligence=lazy(()=>import('./CloudIntelligence').then(m=>({default
 
 const share=(n:number,total:number)=>total?`${(n/total*100).toFixed(1)}%`:'—';
 const tabs=[['drivers','Drivers'],['petty','Petty payments'],['cards','Cards'],['income','Income'],['review','Review']] as const;
-export function SpendingCoach({month,today,account,onInspect}:{month:string;today:string;account:string;onInspect:(title:string,rows:Transaction[])=>void}){
+export function SpendingCoach({month,today,account,onInspect,initialView='drivers',viewRequest=0}:{month:string;today:string;account:string;onInspect:(title:string,rows:Transaction[])=>void;initialView?:'drivers'|'petty'|'cards'|'income'|'review';viewRequest?:number}){
  const {allData:data,statementReady,statementError}=useApp();
- const [view,setView]=useState('drivers'),[threshold,setThreshold]=useState(10000),[bridgeMode,setBridgeMode]=useState('category'),[reduction,setReduction]=useState(25),[scope,setScope]=useState<'petty'|'card'|'combined'>('combined'),[question,setQuestion]=useState('petty'),[selected,setSelected]=useState(''),[showAnswer,setShowAnswer]=useState(false),[evidence,setEvidence]=useState<{title:string;ids:string[]}|null>(null);
+ const [view,setView]=useState<string>(initialView),[threshold,setThreshold]=useState(10000),[bridgeMode,setBridgeMode]=useState('category'),[reduction,setReduction]=useState(25),[scope,setScope]=useState<'petty'|'card'|'combined'>('combined'),[question,setQuestion]=useState('petty'),[selected,setSelected]=useState(''),[showAnswer,setShowAnswer]=useState(false),[evidence,setEvidence]=useState<{title:string;ids:string[]}|null>(null);
+ useEffect(()=>{setView(initialView);if(viewRequest&&initialView==='petty')setThreshold(10000);},[initialView,viewRequest]);
  const c=useMemo(()=>spendingCoach(data,month,today,account,threshold),[data,month,today,account,threshold]),s=c.stats;
  const findings=useMemo(()=>insightFeed(c,data,account,statementError?'error':statementReady?'ready':'loading'),[c,data,account,statementReady,statementError]),reviews=findings.filter(f=>f.kind==='review'),selectedFinding=findings.find(f=>f.id===selected);
  const scenario=reductionScenario(c.petty,c.cards,reduction,scope),answer=answerCoach(question,c),cohorts=disjointSpending(c.petty,c.cards),cohortTotal=cohorts.reduce((n,g)=>n+g.amountMinor,0);
