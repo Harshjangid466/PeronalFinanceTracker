@@ -6,9 +6,9 @@ Updated: 27 October 2026. Read this file and AGENTS.md before changing the app.
 
 Private repository: https://github.com/Harshjangid466/PeronalFinanceTracker
 
-- Personal app snapshot: codex/two-laptop-personal.
+- Personal app and ongoing development: main. The redundant codex/two-laptop-personal branch is consolidated into main.
 - Friends beta snapshot: codex/two-laptop-beta.
-- These preserve local work from Sunday, 25 October. They are synchronization snapshots, not new releases. Do not merge or deploy automatically.
+- main includes the personal work from Sunday, 25 October. The beta remains a frozen separate version; transfer accumulated changes only when Harsh explicitly requests a beta update.
 - Original personal source: C:\Users\Harsh Kumar\Documents\ChatGPT\PersonalFinanceTracker\capture-work.
 - Original beta source: C:\Users\Harsh Kumar\Documents\ChatGPT\PersonalFinanceTracker\friends-beta.
 - Restored sidebar project folder: PersonalFinanceTracker 2. The originals remain untouched.
@@ -32,4 +32,10 @@ Codex chat history is not stored here. This document supplies continuation conte
 
 After cloning: npm ci, npm run typecheck, npm run build. Beta also provides npm run test:beta. A build is not proof that financial data migrations are safe.
 
-Next: open the intended branch on laptop two, add that folder to Codex, read AGENTS.md and this handover, and confirm personal versus beta before app changes.
+Next: open main on both laptops for personal-app development. Read AGENTS.md and this handover before app changes. Do not make ongoing changes in beta.
+
+## Release discipline
+
+Netlify automatically publishes main. Ordinary code synchronization commits must include [skip netlify] unless a live release is explicitly requested. A publish/release request means the intended source must be committed and pushed to GitHub as well as deployed to the correct Netlify site. Do not leave production code only on a laptop. During branch consolidation, skip deployment and preserve the already published Sunday build.
+
+Validation: personal source passed frontend and function typechecks and a production build on 27 October before consolidation. Consolidation preserves that application source; only guidance files change.

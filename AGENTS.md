@@ -1,7 +1,8 @@
 # PersonalFinanceTracker project instructions
 
 ## Establish the active application
-- This saved project folder currently contains capture tooling and screenshots, with no application package.json at its root. Locate and verify the active app checkout before changing application code. Do not rebuild a replacement app because the source is missing here.
+- This checkout contains the personal application at its root, including package.json. Use main for all personal-app development. The friends beta is preserved separately on codex/two-laptop-beta and changes only on an explicit batch-update request.
+- Netlify automatically publishes main. Include [skip netlify] in synchronization-only commits unless a live release is explicitly requested. Publishing means commit/push the intended source to GitHub as well as deploy to the correct site; never leave released source only on a laptop.
 - Check the actual package.json and available scripts in that checkout. Do not run an auxiliary capture-tool package as if it were the finance application.
 
 ## Financial data and storage
