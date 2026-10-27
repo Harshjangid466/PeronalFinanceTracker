@@ -27,3 +27,15 @@ finance_tracker_backup*.json
 Finance_Import_Template*.xlsx
 .netlify
 public/ocr
+
+# Local-only records, tooling state and generated review artifacts
+artifacts/
+.codex/
+*.pdf
+*.xlsx
+*.xls
+*.csv
+*.tsv
+*.db
+*.sqlite
+*.sqlite-*
