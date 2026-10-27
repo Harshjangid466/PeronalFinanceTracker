@@ -1,3 +1,4 @@
+import {countUsage} from '@/beta/localBeta';
 import {nextRecurringDate,processRecurringDue,recurringIsDue} from '@/data/recurring';
 import { createContext, useContext, useEffect, useState, useMemo, type ReactNode } from 'react';
 import type {
@@ -303,6 +304,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   function saveBankAlerts(alerts:BankAlert[]) {setData(prev=>({...prev,bankAlerts:[...(prev.bankAlerts||[]),...alerts]}));}
   function updateBankAlert(id:string, updates:Partial<BankAlert>) {setData(prev=>({...prev,bankAlerts:(prev.bankAlerts||[]).map(a=>a.id===id?{...a,...updates,id:a.id,updatedAt:Date.now()}:a)}));}
   function logAction(action:string,entity:string,description:string) {
+    countUsage('action',action);
     setStoredData(prev=>({...prev,actionLog:[...prev.actionLog,{id:uid(),timestamp:Date.now(),actionType:action,entityType:entity,entityId:entity,description}]}));
   }
   function restoreTransaction(id:string) {const blocked=cardOffsetRestoreBlock(allData,id);if(blocked)throw Error(blocked);setData(prev=>{const blocked=cardOffsetRestoreBlock(prev,id);if(blocked)throw Error(blocked);return {...prev,transactions:prev.transactions.map(t=>t.id===id?{...t,status:'active',deletedAt:undefined,deletedVia:undefined,updatedAt:Date.now()}:t)};}); }
@@ -466,6 +468,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       };
     });
 
+    countUsage('action','entry-created');
     return newTxn;
   }
 

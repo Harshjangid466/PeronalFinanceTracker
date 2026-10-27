@@ -1,6 +1,6 @@
 {
-  "name": "Finance Tracker",
-  "short_name": "Finance",
+  "name": "Finance Tracker Beta",
+  "short_name": "Finance Beta",
   "description": "Quick expense tracking, receivables, and recurring payments",
   "start_url": "/",
   "display": "standalone",

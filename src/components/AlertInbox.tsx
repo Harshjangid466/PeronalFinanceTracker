@@ -12,7 +12,7 @@ import {BankCapturePanel} from './BankCapturePanel';
 
 export function AlertInbox(){
   const {allData,saveBankAlerts,updateBankAlert,restoreTransaction}=useApp();const guard=useDraftGuard();
-  const sources=alertSources(allData);const [source,setSource]=useState(sources.find(s=>s.active&&s.name==='HDFC Savings A/c')?.id||'');
+  const sources=alertSources(allData);const [source,setSource]=useState(sources.find(s=>s.active)?.id||'');
   const [text,setText]=useState('');const [message,setMessage]=useState('');const [filter,setFilter]=useState('Unresolved');
   const [editing,setEditing]=useState<BankAlert|null>(null);const [type,setType]=useState<TransactionType|''>('');const [posting,setPosting]=useState(false);const [reason,setReason]=useState('');
   const alerts=allData.bankAlerts||[];const reviews=alerts.map(a=>({alert:a,...reviewAlert(a,allData.transactions)}));

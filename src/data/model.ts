@@ -6,15 +6,11 @@ import {applyCardOffsetState} from './cardReconciliation';
 
 export type MasterKind = 'source' | 'paymentMode' | 'category' | 'subCategory' | 'person' | 'merchant' | 'purpose' | 'incomeType' | 'investmentType' | 'dropdownOption';
 export interface MasterItem { id: string; kind: MasterKind; name: string; active: boolean; order: number; parentId?: string; updatedAt: number }
-export const canonicalSources = ['Cash','HDFC Savings A/c','BOB Savings A/c','SBI Savings A/c','RGB Savings A/c','HDFC Swiggy CC','Amazon ICICI CC','Flipkart Axis CC','ICICI Coral CC','Scapia Federal CC','BOB ICAI CC','SBI PhonePe CC','Axis Neo CC','Amazon Pay','Pluxee card','Splitwise'];
-export const canonicalModes = ['Cash','UPI','CC','Net banking','Splitwise','Wallet'];
-export const canonicalPeople = ['Siddharth Bhardwaj','VBL Pepsi Business'];
-export const canonicalCategories = ['Food','Commute','Entertainment/Internet','Delhi Flat expense','Annual Expenditure','Travel/Trip','Misc'];
-const aliases: Partial<Record<MasterKind, Record<string,string>>> = {
-  source: {'Split wise':'Splitwise','ICICI Amazon CC':'Amazon ICICI CC','ICICI Amazon Pay CC':'Amazon ICICI CC','Axis Flipkart CC':'Flipkart Axis CC','Scapia CC':'Scapia Federal CC','BOB CC':'BOB ICAI CC','Pluxee':'Pluxee card','SBI Phonepe CC':'SBI PhonePe CC'},
-  category: {'Delhi flat expense':'Delhi Flat expense','Annual Expense':'Annual Expenditure','Travel trip':'Travel/Trip'},
-  paymentMode: {'Credit Card':'CC','Net Banking':'Net banking'}, person: {'Siddharth':'Siddharth Bhardwaj'},
-};
+export const canonicalSources = ['Cash'];
+export const canonicalModes = ['Cash','UPI','Debit Card','CC','Net banking','Bank Transfer','Wallet'];
+export const canonicalPeople: string[] = [];
+export const canonicalCategories = ["Food", "Commute", "Fuel", "Housing", "Bills & Utilities", "Entertainment/Internet", "Travel/Trip", "Shopping", "Health", "Personal", "Insurance & Taxes", "Miscellaneous"];
+const aliases: Partial<Record<MasterKind, Record<string,string>>> = {paymentMode:{'Credit Card':'CC','Net Banking':'Net banking'}};
 export const canonicalName = (kind: MasterKind, name: string) => aliases[kind]?.[name] || name;
 export function stableId(kind: string, name: string): string {
   let hash = 2166136261; for (const c of name) hash = Math.imul(hash ^ c.charCodeAt(0),16777619);
@@ -34,7 +30,7 @@ export function migrateData(input: AppData): AppData {
   data.bankAlerts ||= []; validateAlerts(data.bankAlerts);
   const upgrading = data.schemaVersion < 4 || !data.masters;
   data.masters ||= []; data.sourceMappings ||= {}; data.suppressedPatterns ||= [];
-  data.rules ||= []; data.actionLog ||= []; data.learningEnabled ??= true;
+  data.rules ||= []; data.actionLog ||= []; data.learningEnabled ??= false;
   const ensure = (kind: MasterKind, raw: string, parentId?: string, active = true): MasterItem | undefined => {
     if (!raw) return undefined;
     const name = upgrading ? canonicalName(kind, raw) : raw;
@@ -44,9 +40,7 @@ export function migrateData(input: AppData): AppData {
   };
   for (const [key,kind] of Object.entries(listFields)) for (const name of (data as unknown as Record<string,string[]>)[key] || []) ensure(kind,name);
   for (const cat of data.categories) { const parent=ensure('category',cat.name); for (const sub of cat.subCategories) ensure('subCategory',sub,parent?.id); }
-  if (upgrading) {
-    canonicalSources.forEach(n=>ensure('source',n)); canonicalModes.forEach(n=>ensure('paymentMode',n)); canonicalPeople.forEach(n=>ensure('person',n)); canonicalCategories.forEach(n=>ensure('category',n));
-  }
+
   if(upgrading){for(const [key,kind] of Object.entries({deactivatedAccounts:'source',deactivatedPaymentModes:'paymentMode',deactivatedCategories:'category',deactivatedPeople:'person'} as Record<string,MasterKind>))for(const name of (data as unknown as Record<string,string[]>)[key]||[]){const item=ensure(kind,name);if(item)item.active=false;}}
   const attach = (record: Record<string,unknown>) => {
     for (const [field,kind] of Object.entries(masterFields)) {

@@ -1,6 +1,6 @@
 // Device-local vault, deliberately separate from ledger backups and action logs.
 // Encryption protects stored values, not against scripts running in this app's origin.
-const database='finance-statement-passwords';
+const database='finance-beta-statement-passwords';
 function open():Promise<IDBDatabase>{
  return new Promise((resolve,reject)=>{const r=indexedDB.open(database,1);r.onupgradeneeded=()=>r.result.createObjectStore('vault');r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(Error('Password storage is unavailable on this device.'));});
 }

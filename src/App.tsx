@@ -10,9 +10,15 @@ import { RecurringScreen } from '@/screens/RecurringScreen';
 import {NavigationGuard,requestNavigation,modalStack,hasUnsavedChanges} from '@/components/NavigationGuard';
 import { ChevronLeft } from 'lucide-react';
 
-type View = TabId | 'recurring';
+import {BetaWelcome,BetaTools,BetaFeedback} from '@/beta/BetaExperience';
+import {IconTour} from '@/beta/IconTour';
+import {readProfile} from '@/beta/localBeta';
+type View = TabId | 'recurring' | 'feedback';
 
 function AppContent() {
+  const [welcomed,setWelcomed]=useState(()=>readProfile().welcomed);
+  const [tourOpen,setTourOpen]=useState(()=>readProfile().welcomed&&!readProfile().tourSeen);
+  const [setupStart,setSetupStart]=useState(0);
   const [tab, setTab] = useState<View>('home');
   const [transactionsSeen,setTransactionsSeen]=useState(false);
 
@@ -33,11 +39,15 @@ function AppContent() {
     window.addEventListener('popstate',back);window.addEventListener('keydown',escape);
     return()=>{window.removeEventListener('popstate',back);window.removeEventListener('keydown',escape);};
   },[]);
+  useEffect(()=>{const setup=()=>requestNavigation(()=>{setSetupStart(3);setWelcomed(false);});window.addEventListener('beta-open-guide',setup);return()=>window.removeEventListener('beta-open-guide',setup);},[]);
+  useEffect(()=>{const tour=()=>requestNavigation(()=>{setTab('home');setTourOpen(true);});window.addEventListener('beta-open-tour',tour);return()=>window.removeEventListener('beta-open-tour',tour);},[]);
   const isRecurring = tab === 'recurring';
 
+  if(!welcomed)return <><NavigationGuard/><BetaWelcome startStep={setupStart} onDone={()=>{setTab('home');setWelcomed(true);setTourOpen(!readProfile().tourSeen);}}/></>;
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
       <NavigationGuard />
+      <BetaTools screen={tab} onFeedback={()=>navigate('feedback')}/>
       {tab!=='home'&&!isRecurring&&<div className="max-w-md mx-auto px-4 pt-3"><button className="text-xs text-cyan-600" onClick={goBack}>← Back</button></div>}
       {isRecurring ? (
         <div>
@@ -54,11 +64,13 @@ function AppContent() {
           {tab === 'add' && <AddExpenseScreen />}
           {tab === 'recover' && <RecoverScreen />}
           {tab === 'settings' && <SettingsScreen />}
+          {tab === 'feedback' && <BetaFeedback />}
         </>
       )}
 
       {transactionsSeen&&<div hidden={tab!=='transactions'}><TransactionsScreen active={tab==='transactions'}/></div>}
-      <BottomNav active={isRecurring ? 'home' : tab} onChange={(t) => navigate(t)} />
+      {tourOpen&&<IconTour onClose={()=>setTourOpen(false)}/>}
+      <BottomNav active={isRecurring||tab==='feedback' ? 'home' : tab} onChange={(t) => navigate(t)} />
     </div>
   );
 }

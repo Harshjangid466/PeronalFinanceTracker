@@ -3,8 +3,8 @@ import { getDefaultData, DEFAULT_QUICK_AMOUNTS, DEFAULT_CATEGORIES, DEFAULT_ACCO
 import { normalizeTransactionType, deriveFinancialEffect } from './types';
 import { migrateData } from './model';
 
-const STORAGE_KEY_V2 = 'finance-tracker-data-v2';
-const STORAGE_KEY_V1 = 'finance-tracker-data-v1';
+const STORAGE_KEY_V2 = 'finance-beta-data-v2';
+const STORAGE_KEY_V1 = 'finance-beta-data-v1';
 
 export function loadData(): AppData {
   try {
@@ -67,7 +67,7 @@ export function loadData(): AppData {
     for (const cat of existingCategories) {
       categoryMap.set(cat.name, Array.isArray(cat.subCategories) ? [...cat.subCategories] : []);
     }
-    for (const defCat of (parsed.schemaVersion === 4 ? [] : DEFAULT_CATEGORIES)) {
+    for (const defCat of (parsed.categories === undefined ? DEFAULT_CATEGORIES : [])) {
       if (!categoryMap.has(defCat.name)) {
         categoryMap.set(defCat.name, [...defCat.subCategories]);
       } else {
@@ -84,15 +84,15 @@ export function loadData(): AppData {
 
     // Merge accounts / sources
     const existingAccounts = Array.isArray(parsed.accounts) ? parsed.accounts : [];
-    const mergedAccounts = Array.from(new Set([...existingAccounts, ...(parsed.schemaVersion === 4 ? [] : DEFAULT_ACCOUNTS)]));
+    const mergedAccounts = Array.from(new Set([...existingAccounts, ...(parsed.accounts === undefined ? DEFAULT_ACCOUNTS : [])]));
 
     // Merge payment modes
     const existingPaymentModes = Array.isArray(parsed.paymentModes) ? parsed.paymentModes : [];
-    const mergedPaymentModes = Array.from(new Set([...existingPaymentModes, ...(parsed.schemaVersion === 4 ? [] : DEFAULT_PAYMENT_MODES)]));
+    const mergedPaymentModes = Array.from(new Set([...existingPaymentModes, ...(parsed.paymentModes === undefined ? DEFAULT_PAYMENT_MODES : [])]));
 
     // Keep an untouched snapshot before the first v3 load/save.
-    if (parsed.schemaVersion !== 3 && !localStorage.getItem('finance-tracker-pre-v3-backup')) {
-      localStorage.setItem('finance-tracker-pre-v3-backup', raw);
+    if (parsed.schemaVersion !== 3 && !localStorage.getItem('finance-beta-pre-v3-backup')) {
+      localStorage.setItem('finance-beta-pre-v3-backup', raw);
     }
 
     const result: AppData = {
@@ -102,7 +102,7 @@ export function loadData(): AppData {
       actionLog: Array.isArray(parsed.actionLog) ? parsed.actionLog : [],
       paymentModeSources: parsed.paymentModeSources && typeof parsed.paymentModeSources === 'object'
         ? parsed.paymentModeSources : defaults.paymentModeSources,
-      learningEnabled: parsed.learningEnabled ?? true,
+      learningEnabled: parsed.learningEnabled ?? false,
       transactions: migratedTxns,
       receivables: Array.isArray(parsed.receivables) ? parsed.receivables : defaults.receivables,
       repayments: Array.isArray(parsed.repayments) ? parsed.repayments : defaults.repayments,
@@ -128,7 +128,7 @@ export function loadData(): AppData {
       saveData(result);
     }
 
-    if (parsed.schemaVersion !== 4 && !localStorage.getItem('finance-tracker-pre-v4-backup')) localStorage.setItem('finance-tracker-pre-v4-backup',raw);
+    if (parsed.schemaVersion !== 4 && !localStorage.getItem('finance-beta-pre-v4-backup')) localStorage.setItem('finance-beta-pre-v4-backup',raw);
     return migrateData(result);
   } catch (err) {
     console.error('Error loading data from localStorage, falling back to defaults:', err);

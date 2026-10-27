@@ -1,7 +1,7 @@
 {
-  "name": "vite-react-typescript-starter",
+  "name": "finance-tracker-friends-beta",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0-beta.1",
   "type": "module",
   "scripts": {
     "predev": "node scripts/prepare-ocr.mjs",
@@ -23,7 +23,9 @@
     "test:visual-analytics": "node scripts/verify-visual-analytics.cjs",
     "test:pdf-upload": "node scripts/verify-pdf-upload.mjs && node scripts/verify-pdf-upload.mjs --compat",
     "test:cloud-ai": "node scripts/verify-cloud-ai.cjs",
-    "typecheck:functions": "tsc --noEmit -p tsconfig.functions.json"
+    "typecheck:functions": "tsc --noEmit -p tsconfig.functions.json",
+    "test:beta": "node scripts/verify-beta.cjs",
+    "test:beta-ui": "node scripts/verify-beta-ui.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.4",

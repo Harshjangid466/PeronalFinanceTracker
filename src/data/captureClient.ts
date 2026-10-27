@@ -1,9 +1,9 @@
 import {captureLoginLink} from './captureLogin';
 import {createClient} from '@supabase/supabase-js';
-const url=import.meta.env.VITE_SUPABASE_URL as string|undefined;
-const key=import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string|undefined;
+const url: string|undefined=undefined;
+const key: string|undefined=undefined;
 // Disabled by default. Re-enabling also requires explicit cloud permission restoration.
-export const captureConfigured=import.meta.env.VITE_BANK_CAPTURE_ENABLED==='true'&&!!url&&!!key;
+export const captureConfigured=false;
 export const captureAuth=captureConfigured?createClient(url!,key!,{auth:{storageKey:'finance-capture-auth',persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}}):null;
 export const captureEndpoint=url?`${url}/rest/v1/rpc/ingest_bank_capture`:'';
 export const capturePublicKey=key||'';

@@ -1,5 +1,5 @@
 export type Theme = 'dark' | 'light';
-const key = 'finance-tracker-theme';
+const key = 'finance-beta-theme';
 export function getTheme(): Theme {
   return document.documentElement.classList.contains('dark') ? 'dark' : 'light';
 }

@@ -26,6 +26,9 @@ export function BottomNav({ active, onChange }: NavProps) {
             return (
               <button
                 key={tab.id}
+                data-tour={tab.id}
+                aria-label="Add an entry"
+                title="Add an entry"
                 onClick={() => onChange(tab.id)}
                 className="flex flex-col items-center justify-center -mt-6"
               >
@@ -38,6 +41,8 @@ export function BottomNav({ active, onChange }: NavProps) {
           return (
             <button
               key={tab.id}
+              data-tour={tab.id}
+              title={tab.label}
               onClick={() => onChange(tab.id)}
               className={`flex flex-col items-center justify-center gap-1 flex-1 h-full transition-colors ${
                 isActive

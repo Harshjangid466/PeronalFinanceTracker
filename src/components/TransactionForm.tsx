@@ -69,7 +69,7 @@ export function TransactionForm({
     editTransaction ? editTransaction.paymentMode : prefill?.paymentMode || (data.paymentModes.includes('UPI')?'UPI':data.paymentModes[0] || '')
   );
   const [account, setAccount] = useState<string>(
-    editTransaction ? editTransaction.account : prefill?.account || (data.accounts.includes('HDFC Savings A/c')?'HDFC Savings A/c':data.accounts[0] || '')
+    editTransaction ? editTransaction.account : prefill?.account || (data.accounts[0] || '')
   );
   const [person, setPerson] = useState<string>(
     editTransaction ? editTransaction.person : prefill?.person || ''

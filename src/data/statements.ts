@@ -15,14 +15,7 @@ export function rowId(source:string,account:string,ref:string,date:string,minor:
  const key=ref?`${source}|${account}|${ref}`:`${source}|${account}|${date}|${minor}|${vendor}`;
  return `statement:${key}`;
 }
-export const narrationDefaults: NarrationHabit[]=[
- {id:'nhpv',terms:['nhpv'],enabled:true,action:'ignore',category:'',subcategory:''},
- {id:'food',terms:['food','foo','dood'],enabled:true,action:'post',category:'Food',subcategory:'Food'},
- {id:'dinner',terms:['dinner'],enabled:true,action:'post',category:'Food',subcategory:'Dinner'},
- {id:'groceries',terms:['groceries'],enabled:true,action:'post',category:'Food',subcategory:'Groceries'},
- {id:'commute',terms:['commute','commu','commut','commutr','fommute','petrol'],enabled:true,action:'post',category:'Commute',subcategory:''},
- {id:'misc',terms:['misc','misv','essentials','medicine','medinice','hair cut','gift'],enabled:true,action:'post',category:'Misc',subcategory:''},
-];
+export const narrationDefaults: NarrationHabit[]=[];
 export function classify(row:StatementRow,habits:ImportHabits,history:StatementRow[]=[]):Classification{
  const result=(action:Classification['action'],category:string,subcategory:string,reason:string,type:TransactionType='Revenue Expense'):Classification=>({action,category,subcategory,reason,type});
  if(row.direction==='self'||/\b(atm|cash withdrawal)\b/i.test(row.vendor))return result('ignore','','','Own-account / cash transfer');
@@ -53,8 +46,6 @@ export function classify(row:StatementRow,habits:ImportHabits,history:StatementR
  const median=samples.length?samples[Math.floor(samples.length/2)]:0;
  if(unusual||(samples.length>=3&&row.amountMinor>median*habits.unusualMultiplier))return result('review',vendor?.category||'',vendor?.subcategory||'','Amount outside the usual range');
  if(vendor)return result(vendor.action,vendor.category,vendor.subcategory,vendor.action==='ignore'?'Your vendor exclusion':'Your vendor habit',vendor.type);
- const weekday=new Date(row.date+'T12:00:00Z').getUTCDay();
- if(habits.morningEnabled&&weekday>0&&weekday<6&&row.time&&row.time>=habits.morningStart&&row.time<=habits.morningEnd&&[1500,5000].includes(row.amountMinor))return result(habits.morningAutoPost?'post':'review','Commute','Auto','Weekday morning fare habit');
  return result('review','','','New or unmapped vendor');
 }
 export function directionOf(t:Transaction):'debit'|'credit'{return ['Income Misc','Lent Recovered'].includes(t.type)?'credit':'debit';}

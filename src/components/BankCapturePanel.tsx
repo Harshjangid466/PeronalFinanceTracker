@@ -4,7 +4,7 @@ import {alertSources} from '@/data/alerts';
 import {inputStyle,buttonStyle} from './ConfigurationTools';
 export function BankCapturePanel(){
   const {bankCapture:c,allData}=useApp();const [email,setEmail]=useState('');const [loginLink,setLoginLink]=useState('');const [message,setMessage]=useState('');const [busy,setBusy]=useState(false);const [consent,setConsent]=useState(false);
-  const sources=alertSources(allData).filter(s=>s.active);const [source,setSource]=useState(sources.find(s=>s.name==='HDFC Savings A/c')?.id||'');
+  const sources=alertSources(allData).filter(s=>s.active);const [source,setSource]=useState(sources[0]?.id||'');
   async function run(action:()=>Promise<unknown>,done:string){setBusy(true);setMessage('');try{await action();setMessage(done);}catch(e){setMessage(e instanceof Error?e.message:'Please try again.');}finally{setBusy(false);}}
   if(!c.configured)return <p>Automatic message capture is switched off. The setup is saved for future use. Manual entry and alert review remain available.</p>;
   return <details className="border rounded-xl p-3 space-y-3" data-auto-save><summary className="font-semibold cursor-pointer">Connect iPhone automatic bank alerts</summary>
