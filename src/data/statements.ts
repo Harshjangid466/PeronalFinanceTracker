@@ -1,3 +1,4 @@
+import {suggestMerchantCategory,statementCategorySuggestion} from './merchantCategories';
 import type {AppData, Transaction, TransactionType} from './types';
 
 export interface VendorHabit {id:string;vendor:string;enabled:boolean;action:'post'|'ignore'|'review';category:string;subcategory:string;type:TransactionType;maxAmountMinor?:number;prefix?:boolean;}
@@ -39,7 +40,8 @@ export function classify(row:StatementRow,habits:ImportHabits,history:StatementR
  const generic=!note||/^(upi|upiintent|mopsupitxn|true|pay|payment|merchant qr|verified paytm (account|merchant)|pay to .*|payment to .*|payment for \d+|\d+)$/.test(note);
  if(blocked)return result('review',rule?.category||'','','Complex narration needs review');
  if(rule)return result(rule.action,rule.category,rule.subcategory,rule.action==='review'?'Narration rule requires review':'Narration rule');
- if(!generic)return result('review','','','Unrecognised narration; habit not applied');
+ const merchant=suggestMerchantCategory(row.vendor,row.note,habits);
+ if(!generic)return merchant?result('review',merchant.category,merchant.subcategory,merchant.reason):result('review','','','Unrecognised narration; habit not applied');
  const vendorRules=habits.vendors.filter(h=>h.enabled&&clean(h.vendor)&&(h.prefix?clean(row.vendor).startsWith(clean(h.vendor)):clean(h.vendor)===clean(row.vendor)));
  if(new Set(vendorRules.map(v=>`${v.action}|${v.category}|${v.subcategory}|${v.type}`)).size>1)return result('review','','','Overlapping vendor habits conflict');
  const vendor=vendorRules[0];
@@ -55,6 +57,7 @@ export function classify(row:StatementRow,habits:ImportHabits,history:StatementR
  if(vendor)return result(vendor.action,vendor.category,vendor.subcategory,vendor.action==='ignore'?'Your vendor exclusion':'Your vendor habit',vendor.type);
  const weekday=new Date(row.date+'T12:00:00Z').getUTCDay();
  if(habits.morningEnabled&&weekday>0&&weekday<6&&row.time&&row.time>=habits.morningStart&&row.time<=habits.morningEnd&&[1500,5000].includes(row.amountMinor))return result(habits.morningAutoPost?'post':'review','Commute','Auto','Weekday morning fare habit');
+ if(merchant)return result('review',merchant.category,merchant.subcategory,merchant.reason);
  return result('review','','','New or unmapped vendor');
 }
 export function directionOf(t:Transaction):'debit'|'credit'{return ['Income Misc','Lent Recovered'].includes(t.type)?'credit':'debit';}
@@ -146,6 +149,9 @@ export function classifyImport(rows:StatementRow[],data:AppData,habits:ImportHab
   const matches=references.length?references:candidates(row,data.transactions,reserved);
   // Even a single amount/date candidate needs confirmation without an exact payment reference.
   const classification=classify(row,habits,known);
+  const suggestion=statementCategorySuggestion(row,{...data,importHabits:habits});
+  if(!suggestion&&['Recognised','Category clue'].some(prefix=>classification.reason.startsWith(prefix))){classification.category='';classification.subcategory='';}
+  if(suggestion&&(!classification.category||['Recognised','Category clue'].some(prefix=>classification.reason.startsWith(prefix)))){classification.category=suggestion.category;classification.subcategory=suggestion.subcategory;classification.reason=suggestion.reason;classification.action='review';}
   const referenceConflict=data.transactions.some(t=>t.status==='active'&&row.reference&&t.account===row.account&&t.statementReferences?.includes(row.reference)&&!references.includes(t));
   const near=data.transactions.some(t=>t.status==='active'&&!reserved.has(t.id)&&t.account===row.account&&directionOf(t)===row.direction&&t.date===row.date&&Math.abs(t.amountMinor-row.amountMinor)<=100);
   const exactReference=references.length===1&&!reserved.has(references[0].id)&&!referenceConflict;

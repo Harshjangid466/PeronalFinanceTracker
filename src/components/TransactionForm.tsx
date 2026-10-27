@@ -1,3 +1,6 @@
+import {suggestMerchantCategory,resolveSuggestion,rememberMerchant,categoryUnavailable} from '@/data/merchantCategories';
+import {defaultImportHabits} from '@/data/approvedHabits';
+import {MerchantSuggestionCard} from './MerchantSuggestionCard';
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useApp } from '@/context/AppContext';
 import type { Transaction, TransactionType, CustomFieldDefinition } from '@/data/types';
@@ -28,6 +31,7 @@ export function TransactionForm({
 }: TransactionFormProps) {
   const {
     data,
+    configure,
     addTransaction,
     updateTransaction,
     quickAmounts,
@@ -96,6 +100,12 @@ export function TransactionForm({
     return editTransaction?.customFields || prefill?.customFields || {};
   });
 
+  const [rememberPayee,setRememberPayee]=useState(false);
+  const merchantSuggestion=useMemo(()=>{
+    if(type!=='Revenue Expense')return;
+    const suggestion=suggestMerchantCategory(heading||purchasedFrom,remarks,data.importHabits||defaultImportHabits(),data.transactions.filter(t=>t.id!==editTransaction?.id));
+    return suggestion&&!categoryUnavailable(data,suggestion)?resolveSuggestion(suggestion,data.categories):undefined;
+  },[heading,purchasedFrom,remarks,type,data.importHabits,data.transactions,data.categories,data.masters,editTransaction?.id]);
   const [saved, setSaved] = useState(false);
   const [possibleDuplicate, setPossibleDuplicate] = useState<Transaction | null>(null);
 
@@ -293,6 +303,7 @@ export function TransactionForm({
       }, 500);
     }
 
+    if(rememberPayee&&type==='Revenue Expense'&&heading.trim()&&majorCategory)configure({importHabits:rememberMerchant(data.importHabits||defaultImportHabits(),heading,majorCategory,subCategory)});
     setSaved(true);
     setTimeout(() => {
       setSaved(false);
@@ -446,11 +457,13 @@ export function TransactionForm({
       </div>
 
       <div>
-        <label htmlFor="transaction-heading" className="text-xs font-semibold text-slate-600 dark:text-slate-400 block mb-1">Heading (optional)</label>
+        <label htmlFor="transaction-heading" className="text-xs font-semibold text-slate-600 dark:text-slate-400 block mb-1">Payee / merchant / heading (optional)</label>
         <input id="transaction-heading" type="text" value={heading} onChange={(e) => setHeading(e.target.value)}
           className="w-full px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700" />
       </div>
 
+      <MerchantSuggestionCard suggestion={merchantSuggestion} category={majorCategory} subcategory={subCategory} onApply={s=>{guard.mark();setMajorCategory(s.category);setSubCategory(s.subcategory);}}/>
+      {type==='Revenue Expense'&&heading.trim()&&<label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={rememberPayee} onChange={e=>setRememberPayee(e.target.checked)}/>Remember the category I save for this payee</label>}
       {/* TYPE-SPECIFIC FIELDS */}
 
       {/* 1. REVENUE EXPENSE FIELDS */}

@@ -11,6 +11,8 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.app.json",
+    "test:merchant-categories": "node scripts/verify-merchant-categories.cjs",
+    "test:merchant-categories-ui": "node scripts/verify-merchant-categories-ui.mjs",
     "test:alerts": "node scripts/verify-alerts.cjs",
     "test:capture": "node scripts/verify-capture.cjs",
     "test:statements": "node scripts/verify-statements.cjs",
