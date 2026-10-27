@@ -20,7 +20,7 @@ export const settingsGroups = [
     ]},
   {id:'automate',title:'Habits & rules',description:'Decide what the app suggests and applies.',icon:Sparkles,
     items:[
-      {id:'habits',label:'Import habits',description:'Narration, vendors, exact amounts and review limits',keywords:'statement learning auto post timing'},
+      {id:'habits',label:'Import habits',description:'Merchant categories, narration, vendors and review limits',keywords:'statement learning auto post timing categorisation older entries'},
       {id:'rules',label:'Entry rules',description:'If / then defaults, conditions and priorities',keywords:'logic locked learned'},
       {id:'recurring',label:'Recurring payments',description:'Scheduled entries, mandates and repeat payments',keywords:'recurring templates'},
     ]},

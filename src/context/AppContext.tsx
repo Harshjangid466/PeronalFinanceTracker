@@ -1,4 +1,5 @@
 import {countUsage} from '@/beta/localBeta';
+import {applyCategoryProposals,type CategoryProposal} from '@/data/merchantCategories';
 import {nextRecurringDate,processRecurringDue,recurringIsDue} from '@/data/recurring';
 import { createContext, useContext, useEffect, useState, useMemo, type ReactNode } from 'react';
 import type {
@@ -98,6 +99,7 @@ interface AppContextValue {
   reviewStatement:(id:string,action:'ignore'|'reopen'|'match'|'post',details?:Partial<Transaction>,reason?:string)=>void;
   postPendingStatements:(ids:string[],habits:ImportHabits,vendorId?:string)=>void;
   undoStatementBatch:(id:string)=>void;
+  applyMerchantCategories:(proposals:CategoryProposal[])=>void;
   bankCapture:BankCapture;
   saveBankAlerts: (alerts:BankAlert[])=>void;
   updateBankAlert: (id:string, updates:Partial<BankAlert>)=>void;
@@ -203,6 +205,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const next=typeof update==='function'?update(structuredClone(prev)):update;
       return auditChanges(prev,migrateData(next));
     });
+  }
+  function applyMerchantCategories(proposals:CategoryProposal[]){
+    if(!statementReady||statementError)throw Error('Wait for statement history before reviewing older entries.');
+    const now=Date.now();applyCategoryProposals(allData,proposals,now);
+    setData(prev=>{const next=applyCategoryProposals(prev,proposals,now);return {...next,actionLog:[...next.actionLog,{id:uid(),timestamp:now,actionType:'categorise',entityType:'transactions',entityId:proposals.map(p=>p.id).join(','),description:`Applied reviewed merchant categories to ${proposals.length} entries; amounts unchanged`}]};});
   }
   function configure(updates:Partial<AppData>) { setData(prev=>({...prev,...updates})); }
   function reviewCardRow(id:string,kind?:CardKind,hold?:boolean,reason='Awaiting refund / next statement'){
@@ -1157,7 +1164,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }
 
   const value: AppContextValue = {
-    statementReady,statementError,importStatement,reviewStatement,postPendingStatements,undoStatementBatch,reviewCardRow,settleCardRows,undoCardOffset,
+    statementReady,statementError,importStatement,reviewStatement,postPendingStatements,undoStatementBatch,applyMerchantCategories,reviewCardRow,settleCardRows,undoCardOffset,
     bankCapture,
     saveBankAlerts,updateBankAlert,
     data, allData, deletedTransactions:allData.transactions.filter(t=>t.status==='deleted'),restoreTransaction,removeStatementImport:removeImport,permanentlyDeleteTransaction,configure,logAction,manageMaster,removeMaster,importTransactions,

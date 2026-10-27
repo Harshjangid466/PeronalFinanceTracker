@@ -1,3 +1,4 @@
+import {MerchantCategoryReview} from './MerchantCategoryReview';
 import {useState} from 'react';
 import {useApp} from '@/context/AppContext';
 import {defaultImportHabits} from '@/data/approvedHabits';
@@ -25,6 +26,7 @@ export function ImportHabitsSettings(){
  const vendor=(id:string,patch:Partial<VendorHabit>)=>save({vendors:h.vendors.map(v=>v.id===id?{...v,...patch}:v)});
  const list=h.vendors.filter(v=>v.vendor.toLowerCase().includes(query.toLowerCase()));
  return <div data-auto-save className="habit-workspace space-y-5 text-sm">
+  <MerchantCategoryReview/>
   <p>Habits classify imported payments. Changes apply to future imports; posted entries stay unchanged.</p>
   <details className="text-slate-500 dark:text-slate-400"><summary>How habits are applied</summary>  <p>Narration rules come first, then vendor habits and amount habits. Habits apply to blank or generic notes. Unclear narration and unusual vendor payments go to review. Changes apply to future imports; use “Apply saved rules to pending payments” in Imports &amp; review to check earlier pending rows. Posted entries stay unchanged.</p></details>
 

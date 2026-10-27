@@ -1,14 +1,14 @@
 # Personal Finance Tracker - continuation guide
 
-Updated: 27 October 2026. Read this file and AGENTS.md before changing the app.
+Updated: 28 October 2026. Read this file and AGENTS.md before changing the app.
 
 ## Shared source
 
 Private repository: https://github.com/Harshjangid466/PeronalFinanceTracker
 
-- Personal app snapshot: codex/two-laptop-personal.
-- Friends beta snapshot: codex/two-laptop-beta.
-- These preserve local work from Sunday, 25 October. They are synchronization snapshots, not new releases. Do not merge or deploy automatically.
+- Personal app development: main.
+- Friends beta: codex/two-laptop-beta; explicit batch updates only.
+- Sunday, 25 October work is retained. The merchant-categorisation batch is included in beta version 0.1.0-beta.2. GitHub source updates do not themselves authorise deployment.
 - Original personal source: C:\Users\Harsh Kumar\Documents\ChatGPT\PersonalFinanceTracker\capture-work.
 - Original beta source: C:\Users\Harsh Kumar\Documents\ChatGPT\PersonalFinanceTracker\friends-beta.
 - Restored sidebar project folder: PersonalFinanceTracker 2. The originals remain untouched.
@@ -33,3 +33,5 @@ Codex chat history is not stored here. This document supplies continuation conte
 After cloning: npm ci, npm run typecheck, npm run build. Beta also provides npm run test:beta. A build is not proof that financial data migrations are safe.
 
 Next: open the intended branch on laptop two, add that folder to Codex, read AGENTS.md and this handover, and confirm personal versus beta before app changes.
+
+Beta batch, 28 October: merchant/narration/history category suggestions, manual/import controls and optional reviewed historical changes. Card movement labels distinguish refunds, cashback, repayments and uncertain credits. Preserve beta-specific storage and disabled integrations.

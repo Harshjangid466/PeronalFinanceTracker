@@ -1,11 +1,11 @@
 # Friends beta — local review
 
-This checkout is the isolated friends beta. The personal app remains in `../capture-work`.
+This checkout is the isolated friends beta. Personal-app development remains on `main`.
 
-- Branch: `codex/friends-beta`.
+- Branch: `codex/two-laptop-beta`.
 - Starting commit: `e84dd54`, plus all six unpublished Settings source/test files copied from the personal checkout.
 - Personal tracked files and copied untracked source files are fingerprinted in `beta-source-hashes.json` to verify that the original app stays unchanged.
-- No commits, pushes, Netlify links, builds on Netlify, deployments, cloud resources or credentials were created.
+- The initial local review created no cloud resources or credentials. See BETA_DEPLOYMENT.md for the subsequent Sunday deployment record and the version notes below for later GitHub source updates.
 
 ## Review locally
 
@@ -97,3 +97,11 @@ No Supabase is required for this version. Direct Netlify/Gmail delivery is not e
 Browser scripts use the bundled Playwright Node package and installed Edge via PLAYWRIGHT_MODULE and PLAYWRIGHT_CHANNEL. They do not use your normal browser profile. Screenshots are synthetic under artifacts/.
 
 Known limitation: existing PDF/Excel bundles still trigger Vite's >500 kB warning. No bundle refactor was added for this beta. Physical-device and hosted email delivery tests remain for the later release stage.
+
+## 0.1.0-beta.2 — merchant categorisation
+
+- Category suggestions use merchant names, narration clues, saved rules and consistent past payee categories. Suggestions are local; no financial records are sent to an AI service.
+- Manual entries and statement/card review can apply a suggestion or keep a different category. Remembered categories remain review-only.
+- Card review distinguishes purchases, explicit refunds, cashback, bill repayments, fees and unclear credits. A merchant name alone does not prove an unexplained credit is a refund.
+- Settings → Import habits → Review categories for older entries offers selectable changes; amounts and source rows stay unchanged. Preview cancellation makes no changes.
+- Separate beta storage, generic starter setup, disabled capture/cloud analysis and feedback consent are preserved. This source update does not itself deploy the beta site.

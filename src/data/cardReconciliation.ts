@@ -2,7 +2,7 @@ import type {AppData,Transaction} from './types';
 import {rowState,directionOf,reconciliationControls,validateStatementRows,type StatementRow,type StatementBatch} from './statements';
 import {cashbackCreditKind} from './cashback';
 
-export const cardKindLabels={purchase:'Purchase',payment:'Bill payment',cashback:'Cashback',refund:'Refund / reversal',fee:'Fee / interest',other:'Other — review'};
+export const cardKindLabels={purchase:'Purchase',payment:'Bill payment',cashback:'Cashback',refund:'Refund / reversal',fee:'Fee / interest',other:'Other / unclear credit — review'};
 export type CardKind=keyof typeof cardKindLabels;
 export interface CardSettlement {id:string;account:string;createdAt:number;updatedAt:number;status:'active'|'undone';rowIds:string[];originalRows:StatementRow[];previousTransactions:Transaction[];differenceMinor:number;replacementId?:string;reason:string;bookingDate:string;}
 export interface CardOffsetDetails {date:string;category:string;subcategory?:string;reason:string;confirmed:boolean;customFields?:Record<string,unknown>;}
@@ -13,8 +13,8 @@ export function cardKind(row:StatementRow):CardKind{
  if(/\bcash\s?back\b.*\b(?:reversal|reversed|revoked|clawback|debit)\b/i.test(note))return 'cashback';
  if(row.direction==='credit'){
   if(row.cashbackCredit||cashbackCreditKind(note,row.direction))return 'cashback';
-  if(/\b(?:bbps payment|payment received|payment thank|payment - thank|credit card payment|autopay|auto debit payment|neft payment|imps payment)\b/i.test(note))return 'payment';
-  if(/\b(?:refund|reversal|reversed|cancelled|canceled|flipkart|amazon|myntra)\b/i.test(note))return 'refund';
+  if(/\b(?:refund|reversal|reversed|cancelled|canceled)\b/i.test(note))return 'refund';
+  if(/\b(?:bbps(?: payment)?|cred(?: payment)?|payment received|payment thank|payment - thank|credit card payment|autopay|auto debit payment|neft payment|imps payment)\b/i.test(note))return 'payment';
   return 'other';
  }
  if(row.direction!=='debit')return 'other';

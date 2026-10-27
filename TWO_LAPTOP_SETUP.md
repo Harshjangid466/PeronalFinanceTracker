@@ -9,7 +9,7 @@ Install Git (or GitHub Desktop) and Node.js 22. Sign in to GitHub with access to
 Personal app:
 
 ```powershell
-git clone --branch codex/two-laptop-personal https://github.com/Harshjangid466/PeronalFinanceTracker.git PersonalFinanceTracker
+git clone --branch main https://github.com/Harshjangid466/PeronalFinanceTracker.git PersonalFinanceTracker
 cd PersonalFinanceTracker
 npm ci
 npm run typecheck
@@ -45,4 +45,4 @@ Keep .env files, credentials, OAuth tokens, personal statements, ledger exports/
 
 GitHub carries code and handover documents. It does not synchronize browser financial records or automatically transfer existing Codex chats.
 
-These synchronization branches are separate from production. Do not merge into main, change Netlify settings or deploy without explicit release authorization.
+Main holds ongoing personal development and is linked to Netlify. Use [skip netlify] for source-only updates. Update beta only in an explicitly requested batch; deploy only with release authorisation.

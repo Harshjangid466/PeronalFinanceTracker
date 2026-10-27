@@ -1,7 +1,9 @@
 # PersonalFinanceTracker project instructions
 
 ## Establish the active application
-- This saved project folder currently contains capture tooling and screenshots, with no application package.json at its root. Locate and verify the active app checkout before changing application code. Do not rebuild a replacement app because the source is missing here.
+- This checkout is the friends beta on codex/two-laptop-beta, with package.json at its root. Personal development happens on main; beta receives explicit batch updates only.
+- Preserve beta onboarding, generic defaults, finance-beta storage keys and hard-disabled capture/cloud-analysis integrations. Never copy personal accounts, people or automation defaults into beta.
+- Updating GitHub does not itself authorise a live deployment. Use [skip netlify] for source-only updates.
 - Check the actual package.json and available scripts in that checkout. Do not run an auxiliary capture-tool package as if it were the finance application.
 
 ## Financial data and storage
