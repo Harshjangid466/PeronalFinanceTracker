@@ -11,6 +11,7 @@ const workerSpecifier=readerSource.match(/import\('([^']*pdf\.worker[^']*)'\)/)[
 // Model missing browser APIs in a separate process so the library's polyfills run normally.
 if(process.argv.includes('--compat')){
  delete Promise.withResolvers;delete Promise.try;delete Map.prototype.getOrInsertComputed;
+ delete ReadableStream.prototype[Symbol.asyncIterator];
 }
 globalThis.DOMMatrix=require('@napi-rs/canvas').DOMMatrix;
 const pdf=await import(pathToFileURL(require.resolve(pdfSpecifier)).href);
@@ -39,7 +40,7 @@ function load(file){file=path.resolve(file);if(cache.has(file))return cache.get(
 const {readPaytmFile}=load('src/data/readStatementFile.ts');const progress=[];
 const result=readPaytmFile(file,'test-batch',m=>progress.push(m));
 if(!process.argv.includes('--compat'))permission=false;
-try{const rows=await result;assert.equal(readStarted,true);assert.equal(rows.length,1);assert.equal(rows[0].amountMinor,2500);assert.equal(rows[0].date,'2026-10-12');assert.equal(rows[0].note,'Food');assert.ok(progress.length);permission=true;await assert.rejects(()=>readPaytmFile({...file,size:0},'test-batch',()=>{}),/empty|downloaded/);const {readSelectedFile}=load('src/data/selectedFile.ts');await assert.rejects(()=>readSelectedFile({...file,unreadable:true}),/On My iPhone/);console.log(`PASS ${process.argv.includes('--compat')?'PDF parses without latest Promise/Map APIs':'Selected PDF reading starts before picker access expires'}`);
+try{const rows=await result;assert.equal(readStarted,true);assert.equal(rows.length,1);assert.equal(rows[0].amountMinor,2500);assert.equal(rows[0].date,'2026-10-12');assert.equal(rows[0].note,'Food');assert.ok(progress.length);permission=true;await assert.rejects(()=>readPaytmFile({...file,size:0},'test-batch',()=>{}),/empty|downloaded/);const {readSelectedFile}=load('src/data/selectedFile.ts');await assert.rejects(()=>readSelectedFile({...file,unreadable:true}),/On My iPhone/);console.log(`PASS ${process.argv.includes('--compat')?'PDF parses without latest Promise/Map APIs or stream async iteration':'Selected PDF reading starts before picker access expires'}`);
  for(const period of ["1 OCT'26 - 16 OCT'26",'01 October 2026 to 16 October 2026','01/10/2026 - 16/10/2026']){
   fixturePeriod=period;const parsed=await readPaytmFile(file,'custom-period',()=>{});assert.equal(parsed.length,1);assert.equal(parsed[0].date,'2026-10-12');assert.equal(parsed[0].amountMinor,2500);
  }console.log('PASS custom-period PDFs through the file reader and PDF.js');

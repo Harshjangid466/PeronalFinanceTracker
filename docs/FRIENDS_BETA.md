@@ -105,3 +105,7 @@ Known limitation: existing PDF/Excel bundles still trigger Vite's >500 kB warnin
 - Card review distinguishes purchases, explicit refunds, cashback, bill repayments, fees and unclear credits. A merchant name alone does not prove an unexplained credit is a refund.
 - Settings → Import habits → Review categories for older entries offers selectable changes; amounts and source rows stay unchanged. Preview cancellation makes no changes.
 - Separate beta storage, generic starter setup, disabled capture/cloud analysis and feedback consent are preserved. This source update does not itself deploy the beta site.
+
+## 0.1.0-beta.3 — iPhone PDF import compatibility
+
+Use a shared getReader/read text extractor instead of PDF.js stream async iteration, which fails in some Safari releases. Applies to bank/card and Paytm PDFs. Reproduced with the missing Safari API and verified using plain and AES-256-protected synthetic HDFC statements, source balance checks and invalid-password cases. Ledger records, beta onboarding/storage boundaries and disabled integrations are unchanged. The exact user statement and physical iPhone have not been tested. Hosted release requires explicit authorisation.

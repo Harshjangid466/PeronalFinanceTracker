@@ -35,3 +35,7 @@ After cloning: npm ci, npm run typecheck, npm run build. Beta also provides npm 
 Next: open the intended branch on laptop two, add that folder to Codex, read AGENTS.md and this handover, and confirm personal versus beta before app changes.
 
 Beta batch, 28 October: merchant/narration/history category suggestions, manual/import controls and optional reviewed historical changes. Card movement labels distinguish refunds, cashback, repayments and uncertain credits. Preserve beta-specific storage and disabled integrations.
+
+## 0.1.0-beta.3 — iPhone PDF import compatibility
+
+Use a shared getReader/read text extractor instead of PDF.js stream async iteration, which fails in some Safari releases. Applies to bank/card and Paytm PDFs. Reproduced with the missing Safari API and verified using plain and AES-256-protected synthetic HDFC statements, source balance checks and invalid-password cases. Ledger records, beta onboarding/storage boundaries and disabled integrations are unchanged. The exact user statement and physical iPhone have not been tested. Hosted release requires explicit authorisation.
