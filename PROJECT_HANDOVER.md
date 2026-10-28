@@ -43,3 +43,7 @@ Validation: personal source passed frontend and function typechecks and a produc
 ## Local account/sync implementation — 28 October 2026
 
 Uncommitted accounts and periodic cloud-sync code is present on main, disabled by default. See docs/ACCOUNTS_SETUP.md for configuration, privacy boundaries, local tests and mandatory real staging acceptance. Default interval is 24 hours per device; no realtime sync. SMTP/Supabase migrations and deployment have not been activated. Do not interpret local mocked tests as real database/RLS, SMTP or hosted-function validation. Preserve existing financial records and export private backups before activation.
+
+## Hosted own-account login test — 28 October 2026
+
+Source commit 3642813 is pushed to main with [skip netlify]. Login-only draft: https://account-login-test--harsh-finance-tracker.netlify.app/ (deployment 6ae18924e1327109fcaf7343). Accounts enabled against finance-tracker-test; cloud sync and bank capture disabled. Exact hosted callback saved in the test project. Owner invitation request accepted; await the user completing invitation/password setup. Production and friends-beta unchanged. See docs/ACCOUNTS_SETUP.md for deployment flags, Netlify credit limits and remaining real-service checks.

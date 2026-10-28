@@ -1,6 +1,6 @@
 # Account setup, periodic sync and recovery
 
-Implemented locally on main, 28 October 2026. Nothing has been deployed or activated. No financial records were uploaded. Bank capture remains disabled; Gmail is outside this release.
+Implemented on main, 28 October 2026. A login-only named draft is deployed for own-account testing; production and friends-beta are unchanged. Financial cloud sync remains disabled and its migration has not been applied. No financial records were uploaded. Bank capture remains disabled; Gmail is outside this release.
 
 ## Behaviour
 
@@ -80,3 +80,16 @@ Local model/server-boundary tests, mocked two-device merge/conflict/restore/dele
 ## Later encryption
 
 Versioned cloud documents and separate serialization/transport keep financial logic independent. End-to-end encryption still requires a new key/recovery protocol and migration of current records, daily backups and pre-restore checkpoints; existing plaintext snapshots must be addressed explicitly. Do not promise that this future change is only a switch.
+
+## Hosted login-only test — 28 October 2026
+
+- Draft: https://account-login-test--harsh-finance-tracker.netlify.app/
+- Draft deployment ID: `6ae18924e1327109fcaf7343`; built from source commit `3642813`.
+- Test Supabase project: `finance-tracker-test`, reference `wztttircljpwhbolxbhd`, Mumbai.
+- Build flags: accounts true; cloud sync false; bank capture false. Only the test project URL and public publishable key were supplied to the build. No service-role key was configured or exposed.
+- Exact Site URL and one exact redirect allowlist entry point to the draft root above; no wildcard is allowed. Public signup is off and the minimum password length is 12.
+- Invitation request accepted for the existing organisation owner's address using Supabase's restricted default sender. Email delivery, invitation acceptance and real password login remain pending user completion. Do not add friends as administrators to bypass sender restrictions.
+- The draft is protected by Netlify team access. The owner may need to sign in to Netlify before reaching the app on another device. Do not make it public merely to bypass this prompt.
+- Netlify showed 14 credits available for the cycle ending November 6. Draft deployment avoids the 15-credit production-deployment charge, but viewing traffic still consumes credits. No plan upgrade was made.
+- Verified personal production remains deployment `6addbe76de3f555c86d8651c` created 25 October 2026; the draft was not promoted.
+- Supabase memory-commitment warning remains under investigation. No database tuning, restart, paid compute upgrade or data removal was performed.
