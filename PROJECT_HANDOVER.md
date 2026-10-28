@@ -39,3 +39,7 @@ Next: open main on both laptops for personal-app development. Read AGENTS.md and
 Netlify automatically publishes main. Ordinary code synchronization commits must include [skip netlify] unless a live release is explicitly requested. A publish/release request means the intended source must be committed and pushed to GitHub as well as deployed to the correct Netlify site. Do not leave production code only on a laptop. During branch consolidation, skip deployment and preserve the already published Sunday build.
 
 Validation: personal source passed frontend and function typechecks and a production build on 27 October before consolidation. Consolidation preserves that application source; only guidance files change.
+
+## Local account/sync implementation — 28 October 2026
+
+Uncommitted accounts and periodic cloud-sync code is present on main, disabled by default. See docs/ACCOUNTS_SETUP.md for configuration, privacy boundaries, local tests and mandatory real staging acceptance. Default interval is 24 hours per device; no realtime sync. SMTP/Supabase migrations and deployment have not been activated. Do not interpret local mocked tests as real database/RLS, SMTP or hosted-function validation. Preserve existing financial records and export private backups before activation.

@@ -1,6 +1,6 @@
 import {applyCategoryProposals,type CategoryProposal} from '@/data/merchantCategories';
 import {nextRecurringDate,processRecurringDue,recurringIsDue} from '@/data/recurring';
-import { createContext, useContext, useEffect, useState, useMemo, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, useMemo, useRef, type ReactNode } from 'react';
 import type {
   AppData,
   Transaction,
@@ -104,6 +104,8 @@ interface AppContextValue {
   updateBankAlert: (id:string, updates:Partial<BankAlert>)=>void;
   data: AppData;
   allData: AppData;
+  getSyncData:()=>AppData;
+  replaceSyncData:(data:AppData)=>Promise<void>;
   deletedTransactions: Transaction[];
   restoreTransaction: (id:string)=>void;
   removeStatementImport:(id:string,deletePosted:boolean)=>void;
@@ -193,7 +195,12 @@ export function useApp(): AppContextValue {
 }
 
 export function AppProvider({ children }: { children: ReactNode }) {
-  const [allData, setStoredData] = useState<AppData>(() => loadData());
+  const [allData, storeData] = useState<AppData>(() => loadData());
+  const latestData=useRef(allData);
+  function setStoredData(update:AppData|((prev:AppData)=>AppData)) {
+    const next=typeof update==='function'?update(latestData.current):update;
+    latestData.current=next;storeData(next);
+  }
   const [statementReady,setStatementReady]=useState(false);
   const [statementError,setStatementError]=useState('');
   useEffect(()=>{let cancelled=false;loadStatementArchive().then(archive=>{if(cancelled)return;setStoredData(prev=>migrateData(applyRemovalTombstones({...prev,statementRows:mergeStatementRows(archive.rows,prev.statementRows||[]),statementBatches:[...new Map([...archive.batches,...(prev.statementBatches||[])].map(b=>[b.id,b])).values()]})));setStatementReady(true);}).catch(()=>{if(!cancelled)setStatementError('Statement history could not be opened. Import is disabled; existing financial entries are retained.');});return()=>{cancelled=true;};},[]);
@@ -223,7 +230,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   function undoCardOffset(id:string){if(!statementReady||statementError)throw Error('Statement history is not ready.');const now=Date.now();undoOffset(allData,id,now);setData(prev=>{if(prev.cardSettlements?.find(g=>g.id===id)?.status==='undone')return prev;const next=undoOffset(prev,id,now);return {...next,actionLog:[...next.actionLog,{id:uid(),timestamp:now,actionType:'undo',entityType:'cardSettlements',entityId:id,description:'Undid card offset; restored original entries and source review states'}]};});}
   function statementTransaction(row:StatementRow,details:Partial<Transaction>,batch?:StatementBatch):Transaction{
     const type=details.type||'Revenue Expense',now=Date.now();
-    return {id:uid(),entrySource:statementEntrySource(row,batch||allData.statementBatches?.find(b=>b.id===row.batchId)),schemaVersion:4,type,amount:row.amountMinor/100,amountMinor:row.amountMinor,currency:'INR',date:row.date,createdAt:now,updatedAt:now,majorCategory:details.majorCategory||'',subCategory:details.subCategory||'',paymentMode:details.paymentMode||'UPI',account:row.account,person:details.person||'',heading:details.heading||row.vendor,remarks:details.remarks??row.note,customFields:details.customFields||{},financialEffect:financialEffect(type,row.amountMinor),status:'active',purchasedFrom:details.purchasedFrom||'',paymentFor:details.paymentFor||'',incomeType:details.incomeType||'',investmentType:details.investmentType||'',statementReferences:row.reference?[row.reference]:[]};
+    return {id:`statement:${encodeURIComponent(row.id)}`,entrySource:statementEntrySource(row,batch||allData.statementBatches?.find(b=>b.id===row.batchId)),schemaVersion:4,type,amount:row.amountMinor/100,amountMinor:row.amountMinor,currency:'INR',date:row.date,createdAt:now,updatedAt:now,majorCategory:details.majorCategory||'',subCategory:details.subCategory||'',paymentMode:details.paymentMode||'UPI',account:row.account,person:details.person||'',heading:details.heading||row.vendor,remarks:details.remarks??row.note,customFields:details.customFields||{},financialEffect:financialEffect(type,row.amountMinor),status:'active',purchasedFrom:details.purchasedFrom||'',paymentFor:details.paymentFor||'',incomeType:details.incomeType||'',investmentType:details.investmentType||'',statementReferences:row.reference?[row.reference]:[]};
   }
   function undoStatementBatch(id:string){setData(prev=>{const batch=prev.statementBatches?.find(b=>b.id===id);if(!batch)return prev;const ids=new Set(batchUndoCandidates(batch,prev.statementRows||[],prev.transactions));return {...prev,transactions:prev.transactions.map(t=>ids.has(t.id)?{...t,status:'deleted',deletedVia:'import-undo',deletedAt:Date.now(),updatedAt:Date.now()}:t),actionLog:[...prev.actionLog,{id:uid(),timestamp:Date.now(),actionType:'undo',entityType:'statement',entityId:id,description:`Undid ${ids.size} untouched auto-posted entries; retained import review history`}]};});}
   function ensureStatementCategory(prev:AppData,t:Transaction){
@@ -374,7 +381,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const effects = financialEffect(normType, amountMinor);
 
     const txn: Transaction = {
-      id: uid(),
+      id: `recurring:${encodeURIComponent(id)}:${r.nextDueDate}`,
       schemaVersion: 2,
       type: normType,
       heading: r.description,
@@ -1164,6 +1171,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     statementReady,statementError,importStatement,reviewStatement,postPendingStatements,undoStatementBatch,applyMerchantCategories,reviewCardRow,settleCardRows,undoCardOffset,
     bankCapture,
     saveBankAlerts,updateBankAlert,
+    getSyncData:()=>latestData.current,replaceSyncData:async next=>{saveData(next,true);const archived=saveStatementArchive(next.statementRows||[],next.statementBatches||[]);setStoredData(next);await archived;},
     data, allData, deletedTransactions:allData.transactions.filter(t=>t.status==='deleted'),restoreTransaction,removeStatementImport:removeImport,permanentlyDeleteTransaction,configure,logAction,manageMaster,removeMaster,importTransactions,
     addTransaction,
     updateTransaction,

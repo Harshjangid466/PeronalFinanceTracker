@@ -1,3 +1,4 @@
+import {storageName,accountWritesBlocked} from './accountStorage';
 import type { AppData, Transaction } from './types';
 import { getDefaultData, DEFAULT_QUICK_AMOUNTS, DEFAULT_CATEGORIES, DEFAULT_ACCOUNTS, DEFAULT_PAYMENT_MODES, DEFAULT_CAPEX_PURCHASED_FROM, DEFAULT_TO_GHAR_PAYMENT_FOR, DEFAULT_INCOME_TYPES, DEFAULT_INVESTMENT_TYPES } from './defaults';
 import { normalizeTransactionType, deriveFinancialEffect } from './types';
@@ -8,10 +9,10 @@ const STORAGE_KEY_V1 = 'finance-tracker-data-v1';
 
 export function loadData(): AppData {
   try {
-    let raw = localStorage.getItem(STORAGE_KEY_V2);
+    let raw = localStorage.getItem(storageName(STORAGE_KEY_V2));
     let isV1 = false;
     if (!raw) {
-      raw = localStorage.getItem(STORAGE_KEY_V1);
+      raw = localStorage.getItem(storageName(STORAGE_KEY_V1));
       isV1 = true;
     }
 
@@ -91,8 +92,8 @@ export function loadData(): AppData {
     const mergedPaymentModes = Array.from(new Set([...existingPaymentModes, ...(parsed.schemaVersion === 4 ? [] : DEFAULT_PAYMENT_MODES)]));
 
     // Keep an untouched snapshot before the first v3 load/save.
-    if (parsed.schemaVersion !== 3 && !localStorage.getItem('finance-tracker-pre-v3-backup')) {
-      localStorage.setItem('finance-tracker-pre-v3-backup', raw);
+    if (parsed.schemaVersion !== 3 && !localStorage.getItem(storageName('finance-tracker-pre-v3-backup'))) {
+      localStorage.setItem(storageName('finance-tracker-pre-v3-backup'), raw);
     }
 
     const result: AppData = {
@@ -128,7 +129,7 @@ export function loadData(): AppData {
       saveData(result);
     }
 
-    if (parsed.schemaVersion !== 4 && !localStorage.getItem('finance-tracker-pre-v4-backup')) localStorage.setItem('finance-tracker-pre-v4-backup',raw);
+    if (parsed.schemaVersion !== 4 && !localStorage.getItem(storageName('finance-tracker-pre-v4-backup'))) localStorage.setItem(storageName('finance-tracker-pre-v4-backup'),raw);
     return migrateData(result);
   } catch (err) {
     console.error('Error loading data from localStorage, falling back to defaults:', err);
@@ -137,16 +138,18 @@ export function loadData(): AppData {
   }
 }
 
-export function saveData(data: AppData): void {
+export function saveData(data: AppData, strict=false): void {
+  if(accountWritesBlocked()){if(strict)throw Error("Account data is being removed.");return;}
   try {
     // Large imported history lives in IndexedDB. Backups still include it from AppContext.
     const {statementRows: _rows,statementBatches: _batches,...ledger}=data;
     const serialized = JSON.stringify(ledger);
-    localStorage.setItem(STORAGE_KEY_V2, serialized);
+    localStorage.setItem(storageName(STORAGE_KEY_V2), serialized);
     // Also keep backward-compatible sync
-    localStorage.setItem(STORAGE_KEY_V1, serialized);
+    localStorage.setItem(storageName(STORAGE_KEY_V1), serialized);
   } catch {
     window.dispatchEvent(new CustomEvent("finance-storage-error", {detail:"Changes could not be saved. Download a backup now; browser storage may be full."}));
+    if(strict)throw Error("Local ledger could not be saved. Cloud acknowledgement was not recorded.");
   }
 }
 

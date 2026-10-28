@@ -1,3 +1,5 @@
+import {CloudSyncPanel} from '@/components/CloudSyncPanel';
+import {AccountGate} from '@/components/AccountGate';
 import { useState, useEffect, useRef } from 'react';
 import { AppProvider } from '@/context/AppContext';
 import { BottomNav, type TabId } from '@/components/BottomNav';
@@ -38,6 +40,7 @@ function AppContent() {
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
       <NavigationGuard />
+      <CloudSyncPanel />
       {tab!=='home'&&!isRecurring&&<div className="max-w-md mx-auto px-4 pt-3"><button className="text-xs text-cyan-600" onClick={goBack}>← Back</button></div>}
       {isRecurring ? (
         <div>
@@ -65,8 +68,8 @@ function AppContent() {
 
 export default function App() {
   return (
-    <AppProvider>
+    <AccountGate><AppProvider>
       <AppContent />
-    </AppProvider>
+    </AppProvider></AccountGate>
   );
 }

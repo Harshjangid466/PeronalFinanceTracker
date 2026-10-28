@@ -16,12 +16,15 @@ self.addEventListener("activate", (event) => {
 });
 
 self.addEventListener("fetch", (event) => {
-  if (event.request.method !== "GET") return;
+  const url = new URL(event.request.url);
+  // Account responses and single-use callback URLs must never enter the offline cache.
+  if (event.request.method !== "GET" || url.pathname.startsWith('/api/') ||
+      ['token_hash','access_token','refresh_token','code'].some(key => url.searchParams.has(key))) return;
   event.respondWith(
     caches.match(event.request).then((cached) => {
       const fetchPromise = fetch(event.request)
         .then((response) => {
-          if (response && response.status === 200 && event.request.url.startsWith(self.location.origin)) {
+          if (response && response.status === 200 && !response.headers.get("Cache-Control")?.includes("no-store") && event.request.url.startsWith(self.location.origin)) {
             const clone = response.clone();
             caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
           }
