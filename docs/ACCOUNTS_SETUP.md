@@ -1,6 +1,6 @@
 # Account setup, periodic sync and recovery
 
-Implemented on main, 28 October 2026. A login-only named draft is deployed for own-account testing; production and friends-beta are unchanged. Financial cloud sync remains disabled and its migration has not been applied. No financial records were uploaded. Bank capture remains disabled; Gmail is outside this release.
+Implemented on main, 28 October 2026. A login-only named draft is deployed for own-account testing; production and friends-beta are unchanged. Financial cloud sync remains disabled. Its migration has been applied only to the synthetic test project and rollback-only database checks passed. No financial records were uploaded. Bank capture remains disabled; Gmail is outside this release.
 
 ## Behaviour
 
@@ -75,7 +75,7 @@ npm run build
 
 Browser scripts require Playwright via PLAYWRIGHT_MODULE (or installed `playwright`) and Edge (PLAYWRIGHT_CHANNEL defaults to msedge). Authentication and cloud HTTP requests are fully mocked. Run accounts UI against a Vite server on 127.0.0.1:5184 with accounts enabled and sync disabled. Run sync UI against 127.0.0.1:5185 with both flags enabled. Both use the fake URL `https://accounts-test.invalid` and key `synthetic-publishable-key`; scripts never contact a real service. Override URLs with ACCOUNTS_TEST_URL / SYNC_TEST_URL.
 
-Local model/server-boundary tests, mocked two-device merge/conflict/restore/deletion flows and builds have passed. SQL constraints/grants, actual backup retention, SMTP, token revocation and hosted-function deployment need real staging acceptance; no Supabase project was modified here.
+Local model/server-boundary tests, mocked two-device merge/conflict/restore/deletion flows and builds have passed. Test-project SQL checks now verify RLS, denied browser table/RPC grants, backend RPC access, stale revisions, first daily snapshot, seven-day retention and pre-restore preservation. Hosted-function identity/isolation, concurrent database calls, SMTP recovery, token revocation and deletion still need real staging acceptance.
 
 ## Later encryption
 
@@ -88,8 +88,18 @@ Versioned cloud documents and separate serialization/transport keep financial lo
 - Test Supabase project: `finance-tracker-test`, reference `wztttircljpwhbolxbhd`, Mumbai.
 - Build flags: accounts true; cloud sync false; bank capture false. Only the test project URL and public publishable key were supplied to the build. No service-role key was configured or exposed.
 - Exact Site URL and one exact redirect allowlist entry point to the draft root above; no wildcard is allowed. Public signup is off and the minimum password length is 12.
-- Invitation request accepted for the existing organisation owner's address using Supabase's restricted default sender. Email delivery, invitation acceptance and real password login remain pending user completion. Do not add friends as administrators to bypass sender restrictions.
+- Invitation request accepted for the existing organisation owner's address using Supabase's restricted default sender. Supabase recorded a successful sign-in; the user confirmed starting a separate ledger and completing the synthetic local-save/reload test. Do not add friends as administrators to bypass sender restrictions.
 - The draft is protected by Netlify team access. The owner may need to sign in to Netlify before reaching the app on another device. Do not make it public merely to bypass this prompt.
 - Netlify showed 14 credits available for the cycle ending November 6. Draft deployment avoids the 15-credit production-deployment charge, but viewing traffic still consumes credits. No plan upgrade was made.
 - Verified personal production remains deployment `6addbe76de3f555c86d8651c` created 25 October 2026; the draft was not promoted.
 - Supabase memory-commitment warning remains under investigation. No database tuning, restart, paid compute upgrade or data removal was performed.
+
+## Test sync activation progress — 28 October 2026
+
+- With explicit approval, applied `20261028_account_sync.sql` to `finance-tracker-test` only. SQL Editor returned success.
+- Ran `scripts/verify-sync-database.sql`; every assertion passed and fixture writes were rolled back. This does not prove simultaneous-request behaviour or the deployed HTTP boundary.
+- Re-ran `npm run test:sync` and built locally with accounts/sync enabled and bank capture disabled; typechecks/build passed with the existing bundle-size warning. The hosted draft still uses its prior login-only build.
+- Netlify billing showed **13.7/300 free credits remaining**, 19 production deployments consuming 285 credits, a $0 plan and no saved payment method. No plan change or deployment was made in this step.
+- The cached CLI's `env:set --site` returned without persisting any settings. API verification found none of the three intended server variables. A subsequent Functions-only API request returned Forbidden; the dashboard confirms restricting scopes requires an upgrade.
+- Netlify Free permits branch-specific values but uses broader build/function/runtime scopes (secret values exclude post-processing). Automatic approval review blocked that expanded scope pending explicit approval. No new server variables or privileged key have been saved. The unsubmitted secret form names only `account-login-test`; production, other deploy contexts and local development are blank.
+- Continue only after scope approval and private user entry of the test-project service-role key. Never put that key in chat, source, frontend variables or logs. Keep all values exclusive to the named test branch, then perform at most one draft deployment and verify its context and unchanged production deployment.
