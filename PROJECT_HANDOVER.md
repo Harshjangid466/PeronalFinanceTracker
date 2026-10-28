@@ -47,3 +47,9 @@ Uncommitted accounts and periodic cloud-sync code is present on main, disabled b
 ## Hosted own-account login test — 28 October 2026
 
 Source commit 3642813 is pushed to main with [skip netlify]. Login-only draft: https://account-login-test--harsh-finance-tracker.netlify.app/ (deployment 6ae18924e1327109fcaf7343). Accounts enabled against finance-tracker-test; cloud sync and bank capture disabled. Exact hosted callback saved in the test project. Owner invitation request accepted; await the user completing invitation/password setup. Production and friends-beta unchanged. See docs/ACCOUNTS_SETUP.md for deployment flags, Netlify credit limits and remaining real-service checks.
+
+## HDFC / Safari PDF import fix — 28 October 2026
+
+PDF.js 5.6 text extraction uses ReadableStream async iteration, which is missing in some Safari releases. Reproduced the failure by removing that API before running the real PDF reader. Shared pdfText.ts now consumes text chunks with getReader/read and releases the lock, preserving text, font styles, language and XFA handling. Bank/card and Paytm readers use it; parsing, balance validation and ledger data are unchanged.
+
+Verified plain and AES-256-protected synthetic HDFC statements, missing/incorrect password handling, normal and compatibility PDF tests, the production build, existing regression suites, and mobile upload with the missing Safari API. The user's actual statement and physical iPhone have not been tested. Source fix only: no hosted deployment, credentials, accounts/sync flags or beta update is authorised by this change. Confirm the affected app URL before release.
