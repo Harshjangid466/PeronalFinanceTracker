@@ -5,7 +5,7 @@ export interface VendorHabit {id:string;vendor:string;enabled:boolean;action:'po
 export interface NarrationHabit {id:string;terms:string[];enabled:boolean;action:'post'|'ignore'|'review';category:string;subcategory:string;}
 export interface AmountHabit {id:string;amountMinor:number;enabled:boolean;category:string;subcategory:string;}
 export interface ImportHabits {version:1;vendors:VendorHabit[];narrations:NarrationHabit[];amounts?:AmountHabit[];morningEnabled:boolean;morningStart:string;morningEnd:string;morningAutoPost:boolean;unusualMultiplier:number;}
-export interface StatementRow {id:string;batchId:string;source:'paytm'|'bank';date:string;valueDate?:string;time?:string;vendor:string;note:string;account:string;reference:string;amountMinor:number;direction:'debit'|'credit'|'self';status:'pending'|'posted'|'matched'|'ignored';transactionId?:string;reason?:string;baselineAmountMinor?:number;sourceRow?:number;sourcePage?:number;originalAccount?:string;originalDate?:string;paymentMode?:string;}
+export interface StatementRow {id:string;batchId:string;source:'paytm'|'bank';date:string;valueDate?:string;time?:string;vendor:string;note:string;account:string;reference:string;amountMinor:number;direction:'debit'|'credit'|'self'|'blocked'|'unblocked';status:'pending'|'posted'|'matched'|'ignored';transactionId?:string;reason?:string;baselineAmountMinor?:number;sourceRow?:number;sourcePage?:number;originalAccount?:string;originalDate?:string;paymentMode?:string;}
 export interface StatementRow {cashbackEarnedMinor?:number;cashbackCredit?:'cycle'|'rebate';}
 export interface StatementRow {cardKind?:import('./cardReconciliation').CardKind;cardHold?:{reason:string;createdAt:number};cardSettlementId?:string;}
 export interface CashbackSummary {account:string;earnedMinor?:number;creditedMinor?:number;}
@@ -26,6 +26,7 @@ export const narrationDefaults: NarrationHabit[]=[
 ];
 export function classify(row:StatementRow,habits:ImportHabits,history:StatementRow[]=[]):Classification{
  const result=(action:Classification['action'],category:string,subcategory:string,reason:string,type:TransactionType='Revenue Expense'):Classification=>({action,category,subcategory,reason,type});
+ if(row.direction==='blocked'||row.direction==='unblocked')return result('ignore','','','Funds '+row.direction+' only; not a payment or income');
  if(row.direction==='self'||/\b(atm|cash withdrawal)\b/i.test(row.vendor))return result('ignore','','','Own-account / cash transfer');
  if(row.direction!=='debit')return result('review','','','Credit needs your transaction type');
  const note=clean(row.note);
@@ -72,6 +73,7 @@ export function rowState(row:StatementRow,txns:Transaction[]):StatementRow{
  return row;
 }
 export function saveStatementPosting(txns:Transaction[],row:StatementRow,proposed:Transaction):{transactions:Transaction[];saved:Transaction}{
+ if(row.direction==='blocked'||row.direction==='unblocked')throw Error('Funds blocked/unblocked are non-payment events and cannot be posted.');
  const linked=txns.find(t=>t.id===row.transactionId&&t.status==='active');
  if(txns.some(t=>t.status==='active'&&t.id!==linked?.id&&row.reference&&t.account===row.account&&t.statementReferences?.includes(row.reference)))throw Error('An entry with this payment reference already exists. Match or edit that entry.');
  const saved=linked?{...linked,...proposed,id:linked.id,createdAt:linked.createdAt,entrySource:linked.entrySource||{kind:'legacy' as const},statementReferences:[...new Set([...(linked.statementReferences||[]),...(proposed.statementReferences||[])])]}:proposed;
@@ -94,6 +96,7 @@ export function reconciliationControls(batch:StatementBatch,rows:StatementRow[],
  return {rows:selected,counts,populationComplete:selected.length===batch.count&&selected.length===new Set(selected.map(r=>r.id)).size,debitMinor:amounts(selected,'debit'),creditMinor:amounts(selected,'credit'),pendingDebitMinor:amounts(selected.filter(r=>r.status==='pending'),'debit'),pendingCreditMinor:amounts(selected.filter(r=>r.status==='pending'),'credit'),balanceDifference};
 }
 export function reconciliationAdvice(row:StatementRow,txns:Transaction[]){
+ if(row.direction==='blocked'||row.direction==='unblocked')return {kind:'transfer',message:'Funds '+row.direction+' only. This changes reserved funds, not your payment balance; keep it ignored for spending and income.',candidates:[]};
  const sameAccount=txns.filter(t=>t.status==='active'&&t.account===row.account&&directionOf(t)===row.direction);
  const refs=sameAccount.filter(t=>row.reference&&t.statementReferences?.includes(row.reference));
  const exact=candidates(row,txns);
@@ -121,8 +124,9 @@ export function mergeStatementRows(old:StatementRow[],incoming:StatementRow[]):S
 export function validateStatementRows(value:unknown):asserts value is StatementRow[]{
  if(!Array.isArray(value))throw Error('Invalid statement history');const ids=new Set<string>();
  for(const r of value){if(r?.cardKind!==undefined&&!['purchase','payment','cashback','refund','fee','other'].includes(r.cardKind)||r?.cardHold!==undefined&&(!r.cardHold||typeof r.cardHold.reason!=='string'||!Number.isFinite(r.cardHold.createdAt))||r?.cardSettlementId!==undefined&&(typeof r.cardSettlementId!=='string'||!r.cardSettlementId))throw Error('Invalid card review metadata');}
+ for(const r of value){if(['blocked','unblocked'].includes(r?.direction)&&(r.source!=='paytm'||r.transactionId||!['pending','ignored'].includes(r.status)))throw Error('Invalid non-payment event');}
  for(const r of value){if(r?.cashbackEarnedMinor!==undefined&&(!Number.isSafeInteger(r.cashbackEarnedMinor)||r.source!=='bank'))throw Error('Invalid earned cashback');if(r?.cashbackCredit!==undefined&&(!['cycle','rebate'].includes(r.cashbackCredit)||r.source!=='bank'||r.direction!=='credit'))throw Error('Invalid cashback credit');}
- for(const r of value){if(!r||typeof r.id!=='string'||ids.has(r.id)||!/^\d{4}-\d{2}-\d{2}$/.test(r.date)||new Date(r.date+'T00:00:00Z').toISOString().slice(0,10)!==r.date||!Number.isSafeInteger(r.amountMinor)||r.amountMinor<=0||!['debit','credit','self'].includes(r.direction)||!['pending','posted','matched','ignored'].includes(r.status)||!['paytm','bank'].includes(r.source)||['vendor','account','note','reference','batchId'].some(k=>typeof r[k]!=='string'))throw Error('Invalid statement row');if(r.valueDate!==undefined&&(typeof r.valueDate!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(r.valueDate)||Number.isNaN(Date.parse(r.valueDate))||new Date(r.valueDate+'T00:00:00Z').toISOString().slice(0,10)!==r.valueDate))throw Error('Invalid statement value date');ids.add(r.id);}
+ for(const r of value){if(!r||typeof r.id!=='string'||ids.has(r.id)||!/^\d{4}-\d{2}-\d{2}$/.test(r.date)||new Date(r.date+'T00:00:00Z').toISOString().slice(0,10)!==r.date||!Number.isSafeInteger(r.amountMinor)||r.amountMinor<=0||!['debit','credit','self','blocked','unblocked'].includes(r.direction)||!['pending','posted','matched','ignored'].includes(r.status)||!['paytm','bank'].includes(r.source)||['vendor','account','note','reference','batchId'].some(k=>typeof r[k]!=='string'))throw Error('Invalid statement row');if(r.valueDate!==undefined&&(typeof r.valueDate!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(r.valueDate)||Number.isNaN(Date.parse(r.valueDate))||new Date(r.valueDate+'T00:00:00Z').toISOString().slice(0,10)!==r.valueDate))throw Error('Invalid statement value date');ids.add(r.id);}
 }
 export function validateHabits(value:unknown):asserts value is ImportHabits{
  const h=value as ImportHabits;if(!h||h.version!==1||!Array.isArray(h.vendors)||!Array.isArray(h.narrations)||!Number.isFinite(h.unusualMultiplier)||h.unusualMultiplier<1||![h.morningStart,h.morningEnd].every(t=>typeof t==='string'&&/^\d{2}:\d{2}$/.test(t)))throw Error('Invalid statement habit settings');
@@ -145,19 +149,22 @@ export function classifyImport(rows:StatementRow[],data:AppData,habits:ImportHab
  return rows.map(incoming=>{
   const saved=known.find(r=>r.id===incoming.id);const row=saved?rowState(saved,data.transactions):incoming;
   if(saved&&(!recheckPending||row.status!=='pending'||row.transactionId))return {row,classification:classify(row,habits,known),matches:[],existing:true};
+  if(row.direction==='blocked'||row.direction==='unblocked')return {row,classification:classify(row,habits,known),matches:[],existing:false,exactReference:false};
   const references=data.transactions.filter(t=>t.status==='active'&&t.statementReferences?.includes(row.reference)&&row.reference&&t.account===row.account&&t.date===row.date&&t.amountMinor===row.amountMinor&&directionOf(t)===row.direction);
   const matches=references.length?references:candidates(row,data.transactions,reserved);
-  // Even a single amount/date candidate needs confirmation without an exact payment reference.
+  // Amount/date alone is only a candidate; reference or unique merchant evidence is required.
   const classification=classify(row,habits,known);
   const suggestion=statementCategorySuggestion(row,{...data,importHabits:habits});
   if(!suggestion&&['Recognised','Category clue'].some(prefix=>classification.reason.startsWith(prefix))){classification.category='';classification.subcategory='';}
   if(suggestion&&(!classification.category||['Recognised','Category clue'].some(prefix=>classification.reason.startsWith(prefix)))){classification.category=suggestion.category;classification.subcategory=suggestion.subcategory;classification.reason=suggestion.reason;classification.action='review';}
   const referenceConflict=data.transactions.some(t=>t.status==='active'&&row.reference&&t.account===row.account&&t.statementReferences?.includes(row.reference)&&!references.includes(t));
   const near=data.transactions.some(t=>t.status==='active'&&!reserved.has(t.id)&&t.account===row.account&&directionOf(t)===row.direction&&t.date===row.date&&Math.abs(t.amountMinor-row.amountMinor)<=100);
-  const exactReference=references.length===1&&!reserved.has(references[0].id)&&!referenceConflict;
-  if(exactReference)reserved.add(references[0].id);
+  // A manual entry without payment references needs a unique merchant identity too.
+  const manualMatch=matches.length===1&&!matches[0].statementReferences?.length&&clean(row.vendor)!==''&&clean(matches[0].heading||'')===clean(row.vendor)&&rows.filter(r=>r.account===row.account&&r.date===row.date&&r.amountMinor===row.amountMinor&&r.direction===row.direction&&clean(r.vendor)===clean(row.vendor)).length===1;
+  const exactReference=(references.length===1||manualMatch)&&matches.length===1&&!reserved.has(matches[0].id)&&!referenceConflict;
+  if(exactReference)reserved.add(matches[0].id);
   if(matches.length||near||referenceConflict||row.source==='bank'||!data.accounts.includes(row.account)||classification.type!=='Revenue Expense')classification.action='review';
-  if(matches.length)classification.reason=references.length?'Reference match; confirm link':'Possible existing entry; confirm before posting';
+  if(matches.length&&!exactReference)classification.reason=references.length?'Reference match; confirm link':'Possible existing entry; confirm before posting';
   else if(referenceConflict)classification.reason='Existing payment reference has different details; review before posting';
   else if(near)classification.reason='Possible amount discrepancy with an existing entry';
   else if(row.source==='bank')classification.reason='Bank reconciliation: review unmatched row';
@@ -169,6 +176,7 @@ export function classifyImport(rows:StatementRow[],data:AppData,habits:ImportHab
    else if(requiresCustom){classification.action='review';classification.reason='Required custom fields need review';}
    else if(inactive||!data.paymentModes.includes('UPI')){classification.action='review';classification.reason='Choose an active account, category and UPI payment mode';}
   }
+  if(exactReference)classification.reason=references.length?'Exact account, reference, date, direction and amount match; existing entry retained':'Exact account, date, amount, direction and merchant match; existing entry retained';
   return {row,classification,matches,existing:false,exactReference};
  });
 }

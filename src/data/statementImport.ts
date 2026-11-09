@@ -59,14 +59,16 @@ export function parsePaytmPages(pages:PdfTextPage[],batchId:string):StatementRow
    const accountMatch=accountText.match(/(HDFC Bank|State Bank Of India|Bank Of Baroda|Other UPI Apps?)(?:\s*-\s*(\d+))?/i);if(!accountMatch)throw Error(`Unrecognised source account in Paytm statement (${a.day} ${a.month}: ${accountText}).`);
    const account=accountMatch[1].startsWith('Other UPI')?accountText:accountMatch[1]+(accountMatch[2]?' - '+accountMatch[2]:'');
    const time=col(0,.145).match(/(\d{1,2}):(\d{2})\s*([AP]M)/i);const hh=time?(Number(time[1])%12+(time[3].toUpperCase()==='PM'?12:0)):undefined;
-   const month=months.indexOf(a.month.toUpperCase())+1;const year=firstYear!==lastYear&&month<=Number(periodEnd.slice(5,7))?lastYear:firstYear;
-   const date=dateISO(`${year}-${String(month).padStart(2,'0')}-${a.day}`);if(date<periodStart||date>periodEnd)throw Error('Transaction outside statement period.');
+   const month=months.indexOf(a.month.toUpperCase())+1;
+   const dates=Array.from({length:lastYear-firstYear+1},(_,i)=>`${firstYear+i}-${String(month).padStart(2,'0')}-${a.day}`).filter(d=>d>=periodStart&&d<=periodEnd);
+   if(dates.length!==1)throw Error('Transaction outside statement period or its year is ambiguous. Import a shorter period.');
+   const date=dateISO(dates[0]);
    const amountMinor=moneyMinor(amount[2]);if(amountMinor<=0)throw Error('Zero payment row needs manual review.');
    const vendor=detail.split(/UPI ID:|UPI Ref No:/i)[0].replace(/\s+/g,' ').replace(/^(Paid to|Money sent to|Money received from|Received from)\s*/i,'').trim();
    const note=(notes.match(/Note:\s*([\s\S]*?)(?:Tag:|$)/i)?.[1]||'').replace(/\s+/g,' ').trim();
-   const direction=/Transferred to Self/i.test(detail)?'self':amount[1]==='+'?'credit':amount[1]==='-'?'debit':undefined;
+   const direction=/^Money\s+unblocked\s+for\b/i.test(detail)?'unblocked':/^Money\s+blocked\s+for\b/i.test(detail)?'blocked':/Transferred to Self/i.test(detail)?'self':amount[1]==='+'?'credit':amount[1]==='-'?'debit':undefined;
    if(!direction)throw Error('Could not determine payment direction.');
-   rows.push({id:rowId('paytm',account,ref[1],date,amountMinor,vendor),batchId,source:'paytm',date,time:hh===undefined?undefined:`${String(hh).padStart(2,'0')}:${time![2]}`,vendor,note,account,reference:ref[1],amountMinor,direction,status:'pending',sourcePage:pageIndex+1,originalAccount:account,originalDate:`${a.day} ${a.month}`});
+   rows.push({id:rowId('paytm',account,ref[1],date,amountMinor,vendor)+(['blocked','unblocked'].includes(direction)?'|'+direction:''),batchId,source:'paytm',date,time:hh===undefined?undefined:`${String(hh).padStart(2,'0')}:${time![2]}`,vendor,note,account,reference:ref[1],amountMinor,direction,status:'pending',sourcePage:pageIndex+1,originalAccount:account,originalDate:`${a.day} ${a.month}`});
   }
  }
  if(!rows.length)throw Error('No readable payments found. Scanned PDFs are not supported.');

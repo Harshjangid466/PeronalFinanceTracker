@@ -74,6 +74,29 @@ test('Monthly totals exclude deleted and capital transactions',()=>{const s=spen
 test('Weekly comparison uses the same elapsed days',()=>{const s=spendingSummary([txn(),txn({id:'lastmon',date:'2026-10-05'}),txn({id:'lastthu',date:'2026-10-08'}),txn({id:'future',date:'2026-10-15'})],'2026-10','2026-10-14');assert.equal(s.weeklyMinor,2500);assert.equal(s.previousMinor,2500);});
 test('Income backup preserves entered zero and current values',()=>{const d=migrateData(getDefaultData());d.monthlyIncomeMinor={'2026-10':0};const x=mergeBackup(d,JSON.stringify({data:{...d,monthlyIncomeMinor:{'2026-10':10000,'2026-09':20000}}}));assert.equal(x.monthlyIncomeMinor['2026-10'],0);assert.equal(x.monthlyIncomeMinor['2026-09'],20000);assert.throws(()=>migrateData({...d,monthlyIncomeMinor:{'2026-13':100}}));assert.throws(()=>migrateData({...d,monthlyIncomeMinor:{'2026-10':-1}}));});
 test('Malformed statement controls are rejected during restore',()=>{validateStatementBatches([]);const b={id:'batch',source:'bank',name:'test.csv',createdAt:1,count:1,from:'2026-10-01',to:'2026-10-31',rowIds:['row']};validateStatementBatches([b]);assert.throws(()=>validateStatementBatches([{...b,openingMinor:1.1}]));assert.throws(()=>validateStatementBatches([{...b,rowIds:['row','row']}]));assert.throws(()=>migrateData({...getDefaultData(),statementBatches:[{...b,count:-1}]}));});
+test('Paytm IPO blocks/releases retain their references without becoming payments',()=>{
+ const summary='Total Money Paid - Rs.0 0 Payments made Total Money Received + Rs.0 0 Payments received';
+ for(const [label,direction] of [['Money blocked for TEST IPO','blocked'],['Money unblocked for TEST IPO','unblocked']]){
+  const pages=singleDayPDF(summary,undefined,undefined,'Rs.25');pages[0].items.find(i=>i.str==='Paid to TEST').str=label;
+  const rows=parsePaytmPages(pages,'ipo');assert.equal(rows.length,1);assert.equal(rows[0].direction,direction);assert.equal(rows[0].reference,'000012345678');assert.equal(classify(rows[0],habits()).action,'ignore');validateStatementRows(rows);
+  const d=migrateData({...getDefaultData(),statementRows:rows});const restored=mergeBackup(migrateData(getDefaultData()),JSON.stringify({data:d}));assert.equal(restored.statementRows[0].direction,direction);
+  assert.throws(()=>saveStatementPosting([],rows[0],txn()),/blocked|non-payment/i);
+ }
+ const pages=singleDayPDF(summary,undefined,undefined,'Rs.25');assert.throws(()=>parsePaytmPages(pages,'unknown'),/direction/);
+});
+test('Annual Paytm period resolves both occurrences of its boundary month',()=>{
+ const summary='Total Money Paid - Rs.25 1 Payment made Total Money Received + Rs.0 0 Payment received';
+ for(const [date,expected]of [['10 Nov','2025-11-10'],['08 Nov','2026-11-08']])assert.equal(parsePaytmPages(singleDayPDF(summary,"09 NOV'25 - 08 NOV'26",date),'annual')[0].date,expected);
+});
+test('Unique manual merchant matches skip posting across statement sources',()=>{
+ for(const source of ['bank','paytm']){const d=migrateData(getDefaultData());d.transactions=[txn({heading:'New Vendor',statementReferences:[]})];const p=classifyImport([row({source})],d,habits())[0];assert.equal(p.exactReference,true);assert.match(p.classification.reason,/merchant/i);}
+});
+test('Ambiguous or conflicting manual duplicate candidates remain reviewable',()=>{
+ const d=migrateData(getDefaultData());d.transactions=[txn({heading:'New Vendor'})];
+ const same=row({id:'second',reference:'second'});assert(classifyImport([row(),same],d,habits()).every(p=>!p.exactReference));
+ for(const patch of [{account:'Other'},{date:'2026-10-11'},{amountMinor:2499},{type:'Income Misc'},{status:'deleted'},{heading:'Different merchant'},{statementReferences:['different-reference']}]){d.transactions=[txn({heading:'New Vendor',...patch})];assert.equal(classifyImport([row()],d,habits())[0].exactReference,false);}
+ d.transactions=[txn({heading:'New Vendor'}),txn({id:'second',heading:'New Vendor'})];assert.equal(classifyImport([row()],d,habits())[0].exactReference,false);
+});
 function singleDayPDF(summary,period="13 OCT'26 - 13 OCT'26",date='13 Oct',amount='- Rs.25'){
  const item=(str,x,y)=>({str,x,y});return [{width:600,items:[item(`Paytm Statement for ${period} ${summary}`,0,800),item(date,22,700),item('Paid to TEST',91,699),item('UPI Ref No: 000012345678',91,670),item('Note: Food',288,699),item('HDFC Bank - 80',414,699),item(amount,492,700)]}];
 }

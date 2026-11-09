@@ -241,7 +241,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   function applyStatementRules(prev:AppData,rows:StatementRow[],habits:ImportHabits,batch?:StatementBatch){
       const preview=classifyImport(rows,prev,habits,true);let next=prev;
       const imported=preview.filter(p=>!p.existing).map(p=>{
-        if(p.exactReference&&p.matches.length===1)return {...p.row,status:'matched' as const,transactionId:p.matches[0].id,reason:'Exact account, reference, date and amount match'};
+        if(p.exactReference&&p.matches.length===1)return {...p.row,status:'matched' as const,transactionId:p.matches[0].id,reason:p.classification.reason||'Exact account, reference, date and amount match'};
         if(p.classification.action==='ignore'&&p.row.source==='paytm')return {...p.row,status:'ignored' as const,reason:p.classification.reason};
         if(p.classification.action==='post'&&p.classification.type==='Revenue Expense'&&p.row.source==='paytm'){
           const t=statementTransaction(p.row,{type:p.classification.type,majorCategory:p.classification.category,subCategory:p.classification.subcategory},batch);
@@ -291,7 +291,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if(details.type==='To Ghar'&&!details.paymentFor)throw Error('Select the home payment purpose.');
       if(details.type==='Income Misc'&&!details.incomeType)throw Error('Select the income type.');
       if(details.type==='Investment'&&!details.investmentType)throw Error('Select the investment type.');
-      if(current.direction==='self')throw Error('Own-account transfers must be ignored for expense posting.');
+      if(!['debit','credit'].includes(current.direction))throw Error('Own-account transfers and funds blocked/unblocked must be ignored for expense posting.');
       if(current.direction!==(['Income Misc','Lent Recovered'].includes(details.type)?'credit':'debit'))throw Error('Transaction type does not agree with the statement direction.');
       if(allData.customFields.some(f=>f.enabled&&f.required&&visibleField(f,allData.customFields,details.customFields||{})&&(!f.applicableTypes.length||f.applicableTypes.includes(details.type!))&&(()=>{const v=details.customFields?.[f.key];return v===undefined||v===null||v===''||Array.isArray(v)&&v.length===0;})()))throw Error('Fill the required custom fields before posting.');
     }
