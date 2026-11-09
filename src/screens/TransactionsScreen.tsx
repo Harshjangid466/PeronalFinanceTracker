@@ -203,14 +203,14 @@ export function TransactionsScreen({active=true}:{active?:boolean}) {
       {filtered.length>0&&<p id="transaction-swipe-hint" className="text-xs text-slate-500 mb-2 print:hidden">Swipe right to delete · Swipe left to edit</p>}
       {filtered.length===0?<p className="text-sm text-slate-500 text-center py-12">{data.transactions.length?'No matching transactions.':'No transactions yet.'}</p>:<div>
         {filtered.slice(0,visibleCount).map((t,index)=>{
-          const credit=['Income Misc','Lent Recovered'].includes(t.type);
+          const credit=['Income Misc','Lent Recovered'].includes(t.type)||t.type==='Revenue Expense'&&t.amountMinor<0;
           const newDate=index===0||filtered[index-1].date!==t.date;
           return <div key={t.id}>
             {newDate&&<h2 className="text-xs font-bold text-slate-500 mt-5 mb-2">{formatDate(t.date)}</h2>}
             <SwipeTransactionRow onEdit={()=>setEditingTransaction(t)} onDelete={()=>setDeleteConfirmId(t.id)}>
             <button aria-describedby="transaction-swipe-hint" onClick={()=>setSelected(t)} className="w-full text-left flex items-center justify-between gap-3 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 p-3 hover:bg-slate-50 dark:hover:bg-slate-800">
               <div className="min-w-0"><p className="font-semibold text-sm truncate text-slate-900 dark:text-slate-100">{t.heading||t.person||t.majorCategory||t.type}</p><p className="text-xs text-slate-500 truncate">{[t.majorCategory,t.subCategory,t.account].filter(Boolean).join(' · ')}</p></div>
-              <div className="shrink-0 text-right"><p className={credit?'font-bold text-emerald-600':'font-bold text-slate-900 dark:text-slate-100'}>{credit?'+':'−'}{formatCurrency(t.amount)}</p><p className="text-[10px] text-slate-500">{t.type}</p></div>
+              <div className="shrink-0 text-right"><p className={credit?'font-bold text-emerald-600':'font-bold text-slate-900 dark:text-slate-100'}>{credit?'+':'−'}{formatCurrency(Math.abs(t.amount))}</p><p className="text-[10px] text-slate-500">{t.type==='Revenue Expense'&&t.amountMinor<0?'Expense credit':t.type}</p></div>
             </button>
             </SwipeTransactionRow>
           </div>;

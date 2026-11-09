@@ -61,15 +61,15 @@ export function classify(row:StatementRow,habits:ImportHabits,history:StatementR
  if(merchant)return result('review',merchant.category,merchant.subcategory,merchant.reason);
  return result('review','','','New or unmapped vendor');
 }
-export function directionOf(t:Transaction):'debit'|'credit'{return ['Income Misc','Lent Recovered'].includes(t.type)?'credit':'debit';}
+export function directionOf(t:Transaction):'debit'|'credit'{return ['Income Misc','Lent Recovered'].includes(t.type)||t.type==='Revenue Expense'&&t.amountMinor<0?'credit':'debit';}
 export function candidates(row:StatementRow,txns:Transaction[],reserved:Set<string>=new Set()):Transaction[]{
- return txns.filter(t=>t.status==='active'&&!reserved.has(t.id)&&t.account===row.account&&directionOf(t)===row.direction&&t.amountMinor===row.amountMinor&&t.date===row.date);
+ return txns.filter(t=>t.status==='active'&&!reserved.has(t.id)&&t.account===row.account&&directionOf(t)===row.direction&&Math.abs(t.amountMinor)===row.amountMinor&&t.date===row.date);
 }
 export function rowState(row:StatementRow,txns:Transaction[]):StatementRow{
  if(row.cardSettlementId)return {...row,status:'ignored'};
  if(!row.transactionId)return row;
  const t=txns.find(t=>t.id===row.transactionId);
- if(!t||t.status!=='active'||t.date!==row.date||t.account!==row.account||t.amountMinor!==row.amountMinor||directionOf(t)!==row.direction)return {...row,status:'pending',reason:'Linked entry changed or was deleted; review again'};
+ if(!t||t.status!=='active'||t.date!==row.date||t.account!==row.account||Math.abs(t.amountMinor)!==row.amountMinor||directionOf(t)!==row.direction)return {...row,status:'pending',reason:'Linked entry changed or was deleted; review again'};
  return row;
 }
 export function saveStatementPosting(txns:Transaction[],row:StatementRow,proposed:Transaction):{transactions:Transaction[];saved:Transaction}{
@@ -100,12 +100,12 @@ export function reconciliationAdvice(row:StatementRow,txns:Transaction[]){
  const sameAccount=txns.filter(t=>t.status==='active'&&t.account===row.account&&directionOf(t)===row.direction);
  const refs=sameAccount.filter(t=>row.reference&&t.statementReferences?.includes(row.reference));
  const exact=candidates(row,txns);
- const nearAmount=sameAccount.filter(t=>t.date===row.date&&Math.abs(t.amountMinor-row.amountMinor)<=100);
- const nearDate=row.source==='bank'?sameAccount.filter(t=>t.amountMinor===row.amountMinor&&Math.abs(Date.parse(t.date)-Date.parse(row.date))<=3*86400000):[];
+ const nearAmount=sameAccount.filter(t=>t.date===row.date&&Math.abs(Math.abs(t.amountMinor)-row.amountMinor)<=100);
+ const nearDate=row.source==='bank'?sameAccount.filter(t=>Math.abs(t.amountMinor)===row.amountMinor&&Math.abs(Date.parse(t.date)-Date.parse(row.date))<=3*86400000):[];
  const options=refs.length?refs:exact.length?exact:nearAmount.length?nearAmount:nearDate;
  if(options.length>1)return {kind:'ambiguous',message:'Several existing entries could relate to this row. Confirm the payment reference or vendor before choosing one.',candidates:options};
  if(options.length===1){const t=options[0];
-  if(t.amountMinor!==row.amountMinor)return {kind:'amount',message:`Possible amount difference: statement minus app is ${(row.amountMinor-t.amountMinor)/100} INR. Inspect the receipt before correcting the existing entry.`,varianceMinor:row.amountMinor-t.amountMinor,candidates:options};
+  if(Math.abs(t.amountMinor)!==row.amountMinor)return {kind:'amount',message:`Possible amount difference: statement minus app is ${(row.amountMinor-Math.abs(t.amountMinor))/100} INR. Inspect the receipt before correcting the existing entry.`,varianceMinor:row.amountMinor-Math.abs(t.amountMinor),candidates:options};
   if(t.date!==row.date)return {kind:'date',message:`Possible timing difference: app date ${t.date}, statement date ${row.date}. Check transaction versus settlement date; this is a candidate, not a confirmed match.`,candidates:options};
   return {kind:'match',message:'Date, account, direction and amount agree. Confirm the reference/vendor and link the existing entry.',candidates:options};
  }
@@ -150,7 +150,7 @@ export function classifyImport(rows:StatementRow[],data:AppData,habits:ImportHab
   const saved=known.find(r=>r.id===incoming.id);const row=saved?rowState(saved,data.transactions):incoming;
   if(saved&&(!recheckPending||row.status!=='pending'||row.transactionId))return {row,classification:classify(row,habits,known),matches:[],existing:true};
   if(row.direction==='blocked'||row.direction==='unblocked')return {row,classification:classify(row,habits,known),matches:[],existing:false,exactReference:false};
-  const references=data.transactions.filter(t=>t.status==='active'&&t.statementReferences?.includes(row.reference)&&row.reference&&t.account===row.account&&t.date===row.date&&t.amountMinor===row.amountMinor&&directionOf(t)===row.direction);
+  const references=data.transactions.filter(t=>t.status==='active'&&t.statementReferences?.includes(row.reference)&&row.reference&&t.account===row.account&&t.date===row.date&&Math.abs(t.amountMinor)===row.amountMinor&&directionOf(t)===row.direction);
   const matches=references.length?references:candidates(row,data.transactions,reserved);
   // Amount/date alone is only a candidate; reference or unique merchant evidence is required.
   const classification=classify(row,habits,known);
@@ -158,7 +158,7 @@ export function classifyImport(rows:StatementRow[],data:AppData,habits:ImportHab
   if(!suggestion&&['Recognised','Category clue'].some(prefix=>classification.reason.startsWith(prefix))){classification.category='';classification.subcategory='';}
   if(suggestion&&(!classification.category||['Recognised','Category clue'].some(prefix=>classification.reason.startsWith(prefix)))){classification.category=suggestion.category;classification.subcategory=suggestion.subcategory;classification.reason=suggestion.reason;classification.action='review';}
   const referenceConflict=data.transactions.some(t=>t.status==='active'&&row.reference&&t.account===row.account&&t.statementReferences?.includes(row.reference)&&!references.includes(t));
-  const near=data.transactions.some(t=>t.status==='active'&&!reserved.has(t.id)&&t.account===row.account&&directionOf(t)===row.direction&&t.date===row.date&&Math.abs(t.amountMinor-row.amountMinor)<=100);
+  const near=data.transactions.some(t=>t.status==='active'&&!reserved.has(t.id)&&t.account===row.account&&directionOf(t)===row.direction&&t.date===row.date&&Math.abs(Math.abs(t.amountMinor)-row.amountMinor)<=100);
   // A manual entry without payment references needs a unique merchant identity too.
   const manualMatch=matches.length===1&&!matches[0].statementReferences?.length&&clean(row.vendor)!==''&&clean(matches[0].heading||'')===clean(row.vendor)&&rows.filter(r=>r.account===row.account&&r.date===row.date&&r.amountMinor===row.amountMinor&&r.direction===row.direction&&clean(r.vendor)===clean(row.vendor)).length===1;
   const exactReference=(references.length===1||manualMatch)&&matches.length===1&&!reserved.has(matches[0].id)&&!referenceConflict;

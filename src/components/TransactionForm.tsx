@@ -1,3 +1,4 @@
+import {CAPEX_CATEGORIES} from '@/data/types';
 import {suggestMerchantCategory,resolveSuggestion,rememberMerchant,categoryUnavailable} from '@/data/merchantCategories';
 import {defaultImportHabits} from '@/data/approvedHabits';
 import {MerchantSuggestionCard} from './MerchantSuggestionCard';
@@ -58,8 +59,9 @@ export function TransactionForm({
   );
 
   const [amount, setAmount] = useState<string>(
-    editTransaction ? String(editTransaction.amount) : prefill?.amount ? String(prefill.amount) : ''
+    editTransaction ? String(Math.abs(editTransaction.amount)) : prefill?.amount ? String(Math.abs(prefill.amount)) : ''
   );
+  const [expenseCredit,setExpenseCredit]=useState((editTransaction?.amount??prefill?.amount??0)<0);
   const [date, setDate] = useState<string>(
     editTransaction ? editTransaction.date : prefill?.date || todayISO()
   );
@@ -134,8 +136,10 @@ export function TransactionForm({
     const mode=data.masters?.find(m=>m.kind==='paymentMode'&&m.name===paymentMode);
     const eligible=mode?data.sourceMappings?.[mode.id]:undefined;
     const mapped=data.accounts.filter(name=>eligible?.includes(data.masters?.find(m=>m.kind==='source'&&m.name===name)?.id||''));
-    return Array.from(new Set([...(mapped.length?mapped:data.accounts),...(account?[account]:[])]));
+    return Array.from(new Set([...(mapped.length?mapped:data.accounts),...(isEdit&&account?[account]:[])]));
   },[data.accounts,data.masters,data.sourceMappings,paymentMode,account]);
+
+  useEffect(()=>{if(!isEdit&&!eligibleSources.includes(account))setAccount(eligibleSources[0]||'');},[eligibleSources,account,isEdit]);
 
   // When initialType changes and not editing, update type
   useEffect(() => {
@@ -266,7 +270,7 @@ export function TransactionForm({
     if (!isValid || saved) return;
     guard.clear();clearSheetDraft();
 
-    const amt = parseFloat(amount) || 0;
+    const amt = (parseFloat(amount) || 0)*(type==='Revenue Expense'&&expenseCredit?-1:1);
     const txnPayload: Partial<Transaction> & { amount: number; type: TransactionType } = {
       ...(!isEdit&&prefill?.entrySource?{entrySource:prefill.entrySource}:{}),
       type,
@@ -303,7 +307,7 @@ export function TransactionForm({
       }, 500);
     }
 
-    if(rememberPayee&&type==='Revenue Expense'&&heading.trim()&&majorCategory)configure({importHabits:rememberMerchant(data.importHabits||defaultImportHabits(),heading,majorCategory,subCategory)});
+    if(rememberPayee&&!expenseCredit&&type==='Revenue Expense'&&heading.trim()&&majorCategory)configure({importHabits:rememberMerchant(data.importHabits||defaultImportHabits(),heading,majorCategory,subCategory)});
     setSaved(true);
     setTimeout(() => {
       setSaved(false);
@@ -334,7 +338,7 @@ export function TransactionForm({
     addFrequentTransaction({
       label,
       type,
-      amount: parseFloat(amount) || undefined,
+      amount: (parseFloat(amount)||0)*(type==='Revenue Expense'&&expenseCredit?-1:1)||undefined,
       majorCategory,
       subCategory,
       paymentMode,
@@ -424,6 +428,7 @@ export function TransactionForm({
         </div>
       )}
 
+      {type==='Revenue Expense'&&<label className="block text-sm">Expense entry<select aria-label="Expense entry direction" className="w-full p-3 rounded-xl bg-slate-100 dark:bg-slate-800" value={expenseCredit?'credit':'debit'} onChange={e=>setExpenseCredit(e.target.value==='credit')}><option value="debit">Expense paid</option><option value="credit">Reimbursement / refund (reduces spending)</option></select></label>}
       {/* Amount Input */}
       <div>
         <label className="text-xs font-semibold text-slate-600 dark:text-slate-400 block mb-1">
@@ -624,7 +629,7 @@ export function TransactionForm({
               className="w-full px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-cyan-500 text-sm"
             >
               <option value="">Select Asset Category</option>
-              {['Electronics', 'Gadgets', 'Furniture', 'Vehicle', 'Home Appliance', 'Tools/Equipment', 'Other'].map(
+              {CAPEX_CATEGORIES.map(
                 (opt) => (
                   <option key={opt} value={opt}>
                     {opt}

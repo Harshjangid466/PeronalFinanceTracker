@@ -1,3 +1,4 @@
+import {ACCOUNT_TYPES,defaultAccountType,type AccountType} from '@/data/accountTypes';
 import {useEffect,useState,useRef} from 'react';
 import {useApp} from '@/context/AppContext';
 import {Sheet} from './Sheet';
@@ -10,11 +11,12 @@ export const buttonStyle='px-3 py-2 rounded-xl bg-cyan-600 text-white text-xs fo
 export function MastersManager({kind,parentId}:{kind:MasterKind;parentId?:string}){
   const {allData,manageMaster,removeMaster,configure}=useApp();
   const nameInput=useRef<HTMLInputElement>(null);const [query,setQuery]=useState('');const [showInactive,setShowInactive]=useState(false);
+  const [accountType,setAccountType]=useState<AccountType|''>('');
   const [name,setName]=useState(''); const [editing,setEditing]=useState<MasterItem|null>(null);const [impact,setImpact]=useState<MasterItem|null>(null);const [child,setChild]=useState<MasterItem|null>(null);const [replacement,setReplacement]=useState('');const [error,setError]=useState('');
   const noun:Record<MasterKind,string>={source:'account',paymentMode:'payment method',category:'category',subCategory:'subcategory',person:'person or business',merchant:'merchant',purpose:'household purpose',incomeType:'income type',investmentType:'investment type',dropdownOption:'option'};
   const label=noun[kind];
   const items=(allData.masters||[]).filter(m=>m.kind===kind && m.parentId===parentId).sort((a,b)=>a.order-b.order);
-  function save(){if(!name.trim())return;try{manageMaster(editing?{...editing,name:name.trim()}:{id:uid(),kind,name:name.trim(),parentId,active:true,order:items.length,updatedAt:Date.now()});clearSheetDraft();setName('');setEditing(null);setError('');}catch(e){setError(String(e));}}
+  function save(){if(!name.trim())return;try{if(kind==='source'&&!accountType)throw Error('Choose the account type.');manageMaster(editing?{...editing,name:name.trim(),...(kind==='source'?{accountType:accountType as AccountType}:{})}:{id:uid(),kind,name:name.trim(),parentId,active:true,order:items.length,updatedAt:Date.now(),...(kind==='source'?{accountType:accountType as AccountType}:{})});clearSheetDraft();setName('');setAccountType('');setEditing(null);setError('');}catch(e){setError(String(e));}}
   useEffect(()=>{if(editing)nameInput.current?.focus();},[editing]);
   const refs=impact?dependencies(allData,impact):null;
   function replace(){if(!impact || !replacement)return;const target=allData.masters!.find(m=>m.id===replacement)!;const copy=structuredClone(allData);
@@ -25,11 +27,12 @@ export function MastersManager({kind,parentId}:{kind:MasterKind;parentId?:string
     copy.masters=copy.masters?.map(m=>m.id===impact.id?{...m,active:false}:m);configure(copy);setImpact(null);setReplacement('');}
   return <div className="space-y-3"><p className="text-xs text-slate-500">Names can change. Historical records retain their links. Deactivate values you no longer use.</p>
     <label className="block text-xs">{editing?`Rename ${label}`:`New ${label}`}<input ref={nameInput} aria-label="Master name" className={inputStyle} value={name} onChange={e=>setName(e.target.value)}/></label>
+    {kind==='source'&&<label className="block text-xs">Account type<select aria-label="Account type" className={inputStyle} value={accountType} onChange={e=>setAccountType(e.target.value as AccountType)}><option value="">Choose account type</option>{ACCOUNT_TYPES.map(t=><option key={t}>{t}</option>)}</select><span className="text-slate-500">SB / Current work with UPI and net banking. Card, wallet and cash links are created automatically.</span></label>}
     <button className={buttonStyle} onClick={save}>{editing?'Save name':`Add ${label}`}</button>{editing&&<button className={buttonStyle} onClick={()=>{setEditing(null);setName('');}}>Cancel edit</button>}{error&&<p role="alert">{error}</p>}
     <div className="master-toolbar" data-auto-save><input className={inputStyle} type="search" aria-label="Search values" placeholder="Find a name…" value={query} onChange={e=>setQuery(e.target.value)}/><label><input type="checkbox" checked={showInactive} onChange={e=>setShowInactive(e.target.checked)}/>Show inactive</label><span className="master-secondary">{items.filter(m=>m.active).length} active / {items.filter(m=>!m.active).length} inactive</span></div>
     {!items.some(m=>(showInactive||m.active)&&m.name.toLowerCase().includes(query.trim().toLowerCase()))&&<p className="py-5 text-slate-500">No matching values. Change your search or add a name above.</p>}
-    {items.map((m,i)=>(showInactive||m.active)&&m.name.toLowerCase().includes(query.trim().toLowerCase())&&<div key={m.id} className="master-row"><div className="master-row-heading"><strong>{m.name}</strong><span className="master-secondary">{!m.active?'Inactive':kind==='category'?`${allData.masters?.filter(c=>c.parentId===m.id&&c.kind==='subCategory'&&c.active).length||0} subcategories`:'Active'}</span></div><div className="master-row-actions">
-      <button className={buttonStyle} onClick={()=>{setEditing(m);setName(m.name);}}>Edit</button>
+    {items.map((m,i)=>(showInactive||m.active)&&m.name.toLowerCase().includes(query.trim().toLowerCase())&&<div key={m.id} className="master-row"><div className="master-row-heading"><strong>{m.name}</strong>{kind==='source'&&<span className="master-secondary">{m.accountType||'Type not set'}</span>}<span className="master-secondary">{!m.active?'Inactive':kind==='category'?`${allData.masters?.filter(c=>c.parentId===m.id&&c.kind==='subCategory'&&c.active).length||0} subcategories`:'Active'}</span></div><div className="master-row-actions">
+      <button className={buttonStyle} onClick={()=>{setEditing(m);setName(m.name);setAccountType(m.accountType||defaultAccountType(m.name)||'');}}>Edit</button>
       <button className={buttonStyle} onClick={()=>m.active?setImpact(m):manageMaster({...m,active:true})}>{m.active?'Deactivate':'Reactivate'}</button>
       <button aria-label={`Move ${m.name} up`} disabled={i===0} onClick={()=>{manageMaster({...m,order:items[i-1].order});manageMaster({...items[i-1],order:m.order});}}>↑</button>
       <button aria-label={`Move ${m.name} down`} disabled={i===items.length-1} onClick={()=>{manageMaster({...m,order:items[i+1].order});manageMaster({...items[i+1],order:m.order});}}>↓</button>
@@ -46,7 +49,7 @@ export function MastersManager({kind,parentId}:{kind:MasterKind;parentId?:string
     </div>}</Sheet>
   </div>;
 }
-export function MappingManager(){const {allData,configure}=useApp();return <div data-auto-save className="space-y-4">{allData.masters?.filter(m=>m.kind==='paymentMode'&&m.active).map(mode=><fieldset className="border rounded-xl p-3" key={mode.id}><legend>{mode.name}</legend>{allData.masters?.filter(m=>m.kind==='source'&&m.active).map(source=><label className="block text-xs py-1" key={source.id}><input type="checkbox" checked={allData.sourceMappings?.[mode.id]?.includes(source.id)||false} onChange={e=>{const ids=allData.sourceMappings?.[mode.id]||[];configure({sourceMappings:{...allData.sourceMappings,[mode.id]:e.target.checked?[...ids,source.id]:ids.filter(id=>id!==source.id)}});}}/> {source.name}</label>)}</fieldset>)}</div>}
+export function MappingManager(){const {allData,configure}=useApp();return <div data-auto-save className="space-y-4"><p className="text-xs">Account types set these links automatically. Use this screen only for exceptions.</p>{allData.masters?.filter(m=>m.kind==='paymentMode'&&m.active).map(mode=><fieldset className="border rounded-xl p-3" key={mode.id}><legend>{mode.name}</legend>{allData.masters?.filter(m=>m.kind==='source'&&m.active).map(source=><label className="block text-xs py-1" key={source.id}><input type="checkbox" checked={allData.sourceMappings?.[mode.id]?.includes(source.id)||false} onChange={e=>{const ids=allData.sourceMappings?.[mode.id]||[];configure({sourceMappings:{...allData.sourceMappings,[mode.id]:e.target.checked?[...ids,source.id]:ids.filter(id=>id!==source.id)}});}}/> {source.name}</label>)}</fieldset>)}</div>}
 const ruleFields=['transactionType',...Object.keys(masterFields)];
 export function RulesManager(){const {allData,configure}=useApp(); const [draft,setDraft]=useState<RuleDefinition|null>(null);const [query,setQuery]=useState('');
   useEffect(()=>{const open=(e:Event)=>{const r=allData.rules.find(r=>r.id===(e as CustomEvent<string>).detail);if(r)setDraft(structuredClone(r));};window.addEventListener('finance-edit-rule',open);return()=>window.removeEventListener('finance-edit-rule',open);},[allData.rules]);

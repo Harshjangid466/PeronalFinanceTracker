@@ -40,18 +40,18 @@ export function validateDocument(value:unknown):asserts value is CloudDocument {
   const tx=d.transactions as Record<string,unknown>[];
   for(const t of tx){
     if(!['Revenue Expense','Lent','Lent Recovered','CAPEX','To Ghar','Income Misc','Investment'].includes(String(t.type)))throw Error('Unknown transaction type.');
-    if(!Number.isSafeInteger(t.amountMinor)||(t.amountMinor as number)<0||typeof t.amount!=='number'||!Number.isFinite(t.amount)||Math.abs(t.amount*100-(t.amountMinor as number))>0.01||t.currency!=='INR')throw Error('Invalid transaction money or currency.');
+    if(!Number.isSafeInteger(t.amountMinor)||((t.amountMinor as number)<0&&t.type!=='Revenue Expense')||typeof t.amount!=='number'||!Number.isFinite(t.amount)||Math.abs(t.amount*100-(t.amountMinor as number))>0.01||t.currency!=='INR')throw Error('Invalid transaction money or currency.');
     if(typeof t.date!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(t.date)||new Date(t.date).toISOString().slice(0,10)!==t.date||!['active','cancelled','deleted'].includes(String(t.status)))throw Error('Invalid transaction date/status.');
     if(!object(t.financialEffect)||Object.values(t.financialEffect).some(n=>typeof n!=='number'||!Number.isSafeInteger(n)))throw Error('Invalid financial effect.');
   }
   for(const k of tombstones)if(d[k]!==undefined&&(!Array.isArray(d[k])||(d[k] as unknown[]).some(x=>typeof x!=='string')))throw Error('Invalid deletion markers.');
-  for(const collection of ['receivables','repayments','recurring','quickExpenses','frequentTransactions'])for(const row of (d[collection]||[]) as Record<string,unknown>[]){if(row.amount!==undefined&&(typeof row.amount!=='number'||!Number.isFinite(row.amount)||row.amount<0))throw Error('Invalid financial amount.');if(row.amountMinor!==undefined&&(!Number.isSafeInteger(row.amountMinor)||(row.amountMinor as number)<0))throw Error('Invalid minor amount.');}
+  for(const collection of ['receivables','repayments','recurring','quickExpenses','frequentTransactions'])for(const row of (d[collection]||[]) as Record<string,unknown>[]){if(row.amount!==undefined&&(typeof row.amount!=='number'||!Number.isFinite(row.amount)||(row.amount<0&&!(collection==='frequentTransactions'&&row.type==='Revenue Expense'))))throw Error('Invalid financial amount.');if(row.amountMinor!==undefined&&(!Number.isSafeInteger(row.amountMinor)||(row.amountMinor as number)<0))throw Error('Invalid minor amount.');}
   const purged=new Set(d.permanentlyDeletedTransactionIds as string[]||[]),removed=new Set(d.removedStatementBatchIds as string[]||[]);
   if(tx.some(t=>purged.has(t.id as string)))throw Error('A permanently deleted record was resurrected.');
   const tids=new Set(tx.map(t=>t.id)),batches=(d.statementBatches||[]) as unknown as Record<string,unknown>[],bids=new Set(batches.map(b=>b.id));
   if(batches.some(b=>removed.has(b.id as string)))throw Error('A removed import was resurrected.');
   const rows=(d.statementRows||[]) as unknown as Record<string,unknown>[],rids=new Set(rows.map(r=>r.id));
-  for(const r of rows){if(!Number.isSafeInteger(r.amountMinor)||(r.amountMinor as number)<0||!['debit','credit'].includes(String(r.direction)))throw Error('Invalid statement money/direction.');if(r.transactionId&&!tids.has(r.transactionId))throw Error('Statement links to a missing transaction.');if(r.batchId&&!bids.has(r.batchId))throw Error('Statement links to a missing import.');}
+  for(const r of rows){if(!Number.isSafeInteger(r.amountMinor)||(r.amountMinor as number)<0||!['debit','credit','self','blocked','unblocked'].includes(String(r.direction)))throw Error('Invalid statement money/direction.');if(r.transactionId&&!tids.has(r.transactionId))throw Error('Statement links to a missing transaction.');if(r.batchId&&!bids.has(r.batchId))throw Error('Statement links to a missing import.');}
   for(const r of (d.repayments||[]) as Record<string,unknown>[])if(r.receivableId&&!(d.receivables as Record<string,unknown>[]).some(x=>x.id===r.receivableId))throw Error('Repayment links to a missing receivable.');
   const groups=(d.cardSettlements||[]) as Record<string,unknown>[];
   for(const r of rows)if(r.cardSettlementId&&!groups.some(g=>g.id===r.cardSettlementId))throw Error('Missing card settlement.');

@@ -72,7 +72,7 @@ export function suggestMerchantCategory(vendor:string,note:string,habits?:Import
   return {category:rule.category,subcategory:rule.subcategory,merchant:vendor,source:notes.length?'narration':'vendor',reason:notes.length?'Your narration rule':'Your vendor habit'};
  }
  const genericPayee=/^(?:upi|paytm|razorpay|payu|cashfree|phonepe|google pay|gpay|cred|bbps|online payment|merchant)(?:\s+(?:merchant|payments?|qr|\d+))*$/.test(normal(vendor));
- const previous=genericPayee?[]:history.filter(t=>t.status==='active'&&t.type==='Revenue Expense'&&normal(t.heading||t.purchasedFrom||'')===normal(vendor)&&normal(vendor)&&t.majorCategory&&!unsafe.test(normal(t.remarks)));
+ const previous=genericPayee?[]:history.filter(t=>t.status==='active'&&t.type==='Revenue Expense'&&t.amountMinor>0&&normal(t.heading||t.purchasedFrom||'')===normal(vendor)&&normal(vendor)&&t.majorCategory&&!unsafe.test(normal(t.remarks)));
  if(previous.length){
   const choices=new Set(previous.map(t=>JSON.stringify([t.majorCategory,t.subCategory])));
   if(choices.size!==1)return;
@@ -134,7 +134,7 @@ export function statementCategorySuggestion(row:StatementRow,data:Pick<AppData,'
 export interface CategoryProposal {id:string;before:string;vendor:string;date:string;amountMinor:number;oldCategory:string;oldSubcategory:string;suggestion:MerchantSuggestion;}
 const snapshot=(t:Transaction)=>JSON.stringify(t);
 export function historicalCategoryPreview(data:AppData):CategoryProposal[]{
- return data.transactions.filter(t=>t.status==='active'&&t.type==='Revenue Expense'&&!data.cardSettlements?.some(g=>g.status==='active'&&(g.replacementId===t.id||g.previousTransactions.some(p=>p.id===t.id)))).flatMap(t=>{
+ return data.transactions.filter(t=>t.status==='active'&&t.type==='Revenue Expense'&&t.amountMinor>0&&!data.cardSettlements?.some(g=>g.status==='active'&&(g.replacementId===t.id||g.previousTransactions.some(p=>p.id===t.id)))).flatMap(t=>{
   const sources=(data.statementRows||[]).filter(r=>r.transactionId===t.id);
   if(sources.some(r=>r.direction!=='debit'||r.cardSettlementId||r.cardKind&&r.cardKind!=='purchase'))return [];
   const vendor=sources[0]?.vendor||t.heading||t.purchasedFrom||'';

@@ -12,5 +12,5 @@ export function importSummary(batch:StatementBatch,rows:StatementRow[],transacti
  const groups=new Map<string,Transaction[]>();
  for(const t of expenses){const category=t.majorCategory||'Uncategorised',group=groups.get(category)||[];group.push(t);groups.set(category,group);}
  const categories=[...groups].map(([category,transactions])=>({category,transactions,amountMinor:sum(transactions),count:transactions.length})).sort((a,b)=>b.amountMinor-a.amountMinor||a.category.localeCompare(b.category));
- return {controls,recorded,expenses,categories,expenseMinor:sum(expenses),otherOutflowMinor:sum(recorded.filter(t=>t.type!=='Revenue Expense'&&directionOf(t)==='debit')),creditMinor:sum(recorded.filter(t=>directionOf(t)==='credit'))};
+ return {controls,recorded,expenses,categories,expenseMinor:sum(expenses),otherOutflowMinor:sum(recorded.filter(t=>t.type!=='Revenue Expense'&&directionOf(t)==='debit')),expenseCreditMinor:-sum(expenses.filter(t=>t.amountMinor<0)),creditMinor:sum(recorded.filter(t=>t.type!=='Revenue Expense'&&directionOf(t)==='credit'))};
 }

@@ -1,3 +1,4 @@
+import {mapTypedAccount} from '@/data/accountTypes';
 import {applyCategoryProposals,type CategoryProposal} from '@/data/merchantCategories';
 import {nextRecurringDate,processRecurringDue,recurringIsDue} from '@/data/recurring';
 import { createContext, useContext, useEffect, useState, useMemo, useRef, type ReactNode } from 'react';
@@ -22,7 +23,7 @@ import {
 import { loadData, saveData, uid } from '@/data/storage';
 import {loadStatementArchive,saveStatementArchive} from '@/data/statementStore';
 import {applyCardOffset,previewCardOffset,undoCardOffset as undoOffset,cardOffsetRestoreBlock,isCardRow,cardKind,type CardKind,type CardOffsetDetails} from '@/data/cardReconciliation';
-import {classifyImport,pendingRuleMatches,mergeStatementRows,rowState,batchUndoCandidates,saveStatementPosting,type StatementRow,type StatementBatch,type ImportHabits} from '@/data/statements';
+import {directionOf,classifyImport,pendingRuleMatches,mergeStatementRows,rowState,batchUndoCandidates,saveStatementPosting,type StatementRow,type StatementBatch,type ImportHabits} from '@/data/statements';
 import {defaultImportHabits} from '@/data/approvedHabits';
 import { migrateData, projectMasters, financialEffect, dependencies, idFields, masterFields, patternKey, visibleField, type MasterItem, type MasterKind } from '@/data/model';
 import { auditChanges } from '@/data/audit';
@@ -229,8 +230,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }
   function undoCardOffset(id:string){if(!statementReady||statementError)throw Error('Statement history is not ready.');const now=Date.now();undoOffset(allData,id,now);setData(prev=>{if(prev.cardSettlements?.find(g=>g.id===id)?.status==='undone')return prev;const next=undoOffset(prev,id,now);return {...next,actionLog:[...next.actionLog,{id:uid(),timestamp:now,actionType:'undo',entityType:'cardSettlements',entityId:id,description:'Undid card offset; restored original entries and source review states'}]};});}
   function statementTransaction(row:StatementRow,details:Partial<Transaction>,batch?:StatementBatch):Transaction{
-    const type=details.type||'Revenue Expense',now=Date.now();
-    return {id:`statement:${encodeURIComponent(row.id)}`,entrySource:statementEntrySource(row,batch||allData.statementBatches?.find(b=>b.id===row.batchId)),schemaVersion:4,type,amount:row.amountMinor/100,amountMinor:row.amountMinor,currency:'INR',date:row.date,createdAt:now,updatedAt:now,majorCategory:details.majorCategory||'',subCategory:details.subCategory||'',paymentMode:details.paymentMode||'UPI',account:row.account,person:details.person||'',heading:details.heading||row.vendor,remarks:details.remarks??row.note,customFields:details.customFields||{},financialEffect:financialEffect(type,row.amountMinor),status:'active',purchasedFrom:details.purchasedFrom||'',paymentFor:details.paymentFor||'',incomeType:details.incomeType||'',investmentType:details.investmentType||'',statementReferences:row.reference?[row.reference]:[]};
+    const type=details.type||'Revenue Expense',now=Date.now(),signedMinor=type==='Revenue Expense'&&row.direction==='credit'?-row.amountMinor:row.amountMinor;
+    return {id:`statement:${encodeURIComponent(row.id)}`,entrySource:statementEntrySource(row,batch||allData.statementBatches?.find(b=>b.id===row.batchId)),schemaVersion:4,type,amount:signedMinor/100,amountMinor:signedMinor,currency:'INR',date:row.date,createdAt:now,updatedAt:now,majorCategory:details.majorCategory||'',subCategory:details.subCategory||'',paymentMode:details.paymentMode||'UPI',account:row.account,person:details.person||'',heading:details.heading||row.vendor,remarks:details.remarks??row.note,customFields:details.customFields||{},financialEffect:financialEffect(type,signedMinor),status:'active',purchasedFrom:details.purchasedFrom||'',paymentFor:details.paymentFor||'',incomeType:details.incomeType||'',investmentType:details.investmentType||'',statementReferences:row.reference?[row.reference]:[]};
   }
   function undoStatementBatch(id:string){setData(prev=>{const batch=prev.statementBatches?.find(b=>b.id===id);if(!batch)return prev;const ids=new Set(batchUndoCandidates(batch,prev.statementRows||[],prev.transactions));return {...prev,transactions:prev.transactions.map(t=>ids.has(t.id)?{...t,status:'deleted',deletedVia:'import-undo',deletedAt:Date.now(),updatedAt:Date.now()}:t),actionLog:[...prev.actionLog,{id:uid(),timestamp:Date.now(),actionType:'undo',entityType:'statement',entityId:id,description:`Undid ${ids.size} untouched auto-posted entries; retained import review history`}]};});}
   function ensureStatementCategory(prev:AppData,t:Transaction){
@@ -292,7 +293,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if(details.type==='Income Misc'&&!details.incomeType)throw Error('Select the income type.');
       if(details.type==='Investment'&&!details.investmentType)throw Error('Select the investment type.');
       if(!['debit','credit'].includes(current.direction))throw Error('Own-account transfers and funds blocked/unblocked must be ignored for expense posting.');
-      if(current.direction!==(['Income Misc','Lent Recovered'].includes(details.type)?'credit':'debit'))throw Error('Transaction type does not agree with the statement direction.');
+      if(!(details.type==='Revenue Expense'&&current.direction==='credit')&&current.direction!==(['Income Misc','Lent Recovered'].includes(details.type)?'credit':'debit'))throw Error('Transaction type does not agree with the statement direction.');
       if(allData.customFields.some(f=>f.enabled&&f.required&&visibleField(f,allData.customFields,details.customFields||{})&&(!f.applicableTypes.length||f.applicableTypes.includes(details.type!))&&(()=>{const v=details.customFields?.[f.key];return v===undefined||v===null||v===''||Array.isArray(v)&&v.length===0;})()))throw Error('Fill the required custom fields before posting.');
     }
     setData(prev=>{
@@ -304,7 +305,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       let transactionId:string|undefined;let next=prev;
       if(action==='match'){
         const t=prev.transactions.find(t=>t.id===details.id);
-        if(!t||t.status!=='active'||t.date!==row.date||t.amountMinor!==row.amountMinor||t.account!==row.account||(['Income Misc','Lent Recovered'].includes(t.type)?'credit':'debit')!==row.direction)return prev;
+        if(!t||t.status!=='active'||t.date!==row.date||Math.abs(t.amountMinor)!==row.amountMinor||t.account!==row.account||directionOf(t)!==row.direction)return prev;
         if(prev.statementRows?.some(r=>r.id!==id&&r.source===row.source&&r.transactionId===t.id&&rowState(r,prev.transactions).status!=='pending'))return prev;
         transactionId=t.id;next={...prev,transactions:prev.transactions.map(t=>t.id===transactionId?{...t,statementReferences:[...new Set([...(t.statementReferences||[]),...(row.reference?[row.reference]:[])])]}:t)};
       }
@@ -328,7 +329,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const existing=prev.masters?.find(m=>m.id===item.id);
       if(prev.masters?.some(m=>m.id!==item.id && m.kind===item.kind && m.parentId===item.parentId && m.name.toLowerCase()===item.name.toLowerCase()))throw new Error('That name already exists.');
       const masters=existing?prev.masters!.map(m=>m.id===item.id?{...item,updatedAt:Date.now()}:m):[...(prev.masters||[]),item];
-      let next=projectMasters({...prev,masters});
+      let next=projectMasters(!existing||existing.accountType!==item.accountType?mapTypedAccount({...prev,masters},item):{...prev,masters});
       if(item.kind==='dropdownOption' && existing) {
         const owner=prev.customFields.find(f=>f.id===item.parentId);
         if(owner) {
@@ -378,6 +379,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const normType = normalizeTransactionType(r.type);
     const amount = r.amount;
     const amountMinor = r.amountMinor ?? toPaise(amount);
+    if(!Number.isSafeInteger(amountMinor)||!amountMinor||amountMinor<0&&normType!=='Revenue Expense')throw Error('Choose a valid amount; only expense credits may be negative.');
     const effects = financialEffect(normType, amountMinor);
 
     const txn: Transaction = {
@@ -429,6 +431,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const amount = Number(t.amount) || 0;
     const amountMinor = t.amountMinor ?? toPaise(amount);
     const date = t.date || todayISO();
+    if(!Number.isSafeInteger(amountMinor)||!amountMinor||amountMinor<0&&normType!=='Revenue Expense')throw Error('Choose a valid amount; only expense credits may be negative.');
     const effects = financialEffect(normType, amountMinor);
 
     const newTxn: Transaction = {
@@ -487,7 +490,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const current=allData.transactions.find(t=>t.id===id);if(!current)return null;
     const merged={...current,...updates,updatedAt:Date.now()};
     for(const field of Object.keys(masterFields))if(field in updates)delete (merged as unknown as Record<string,unknown>)[idFields[field]];
-    merged.type=normalizeTransactionType(merged.type);merged.amountMinor=toPaise(merged.amount);merged.amount=merged.amountMinor/100;merged.financialEffect=financialEffect(merged.type,merged.amountMinor);
+    merged.type=normalizeTransactionType(merged.type);merged.amountMinor=toPaise(merged.amount);merged.amount=merged.amountMinor/100;merged.financialEffect=financialEffect(merged.type,merged.amountMinor);if(!Number.isSafeInteger(merged.amountMinor)||!merged.amountMinor||merged.amountMinor<0&&merged.type!=='Revenue Expense')throw Error('Only expense credits may be negative.');
     setData(prev=>({...prev,transactions:prev.transactions.map(t=>t.id===id?merged:t),people:merged.person&&!prev.people.includes(merged.person)?[...prev.people,merged.person]:prev.people}));
     return merged;
   }

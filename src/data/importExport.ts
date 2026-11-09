@@ -17,7 +17,7 @@ export function previewImport(rows:string[][],data:AppData):ImportPreview[]{if(!
     record.type ||= 'Revenue Expense'; record.amount=Number(String(record.amount||'').replace(/[₹,]/g,''));
     const t=record as Partial<Transaction>; const errors:string[]=[];const warnings:string[]=[];
     const date=String(t.date||'');if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||Number.isNaN(Date.parse(date))||new Date(date).toISOString().slice(0,10)!==date)errors.push('Date must be a real YYYY-MM-DD date.');
-    if(!Number.isFinite(t.amount)||!t.amount||t.amount<=0||!Number.isSafeInteger(Math.round(t.amount*100)))errors.push('Amount must be positive and within the supported range.');
+    if(!Number.isFinite(t.amount)||!t.amount||(t.amount<0&&t.type!=='Revenue Expense')||!Number.isSafeInteger(Math.round(t.amount*100)))errors.push('Amount must be nonzero; only revenue expense credits may be negative.');
     if(t.amount!==undefined && Math.abs(t.amount*100-Math.round(t.amount*100))>1e-6)errors.push('Amount must have at most two decimal places.');
     if(!CORE_TRANSACTION_TYPES.includes(t.type!))errors.push('Unknown transaction type.');
     if(['Lent','Lent Recovered'].includes(t.type!)&&!t.person)errors.push('Person is required.');
