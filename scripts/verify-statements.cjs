@@ -84,6 +84,29 @@ test('Monthly totals exclude deleted and capital transactions',()=>{const s=spen
 test('Weekly comparison uses the same elapsed days',()=>{const s=spendingSummary([txn(),txn({id:'lastmon',date:'2026-10-05'}),txn({id:'lastthu',date:'2026-10-08'}),txn({id:'future',date:'2026-10-15'})],'2026-10','2026-10-14');assert.equal(s.weeklyMinor,2500);assert.equal(s.previousMinor,2500);});
 test('Income backup preserves entered zero and current values',()=>{const d=migrateData(getDefaultData());d.monthlyIncomeMinor={'2026-10':0};const x=mergeBackup(d,JSON.stringify({data:{...d,monthlyIncomeMinor:{'2026-10':10000,'2026-09':20000}}}));assert.equal(x.monthlyIncomeMinor['2026-10'],0);assert.equal(x.monthlyIncomeMinor['2026-09'],20000);assert.throws(()=>migrateData({...d,monthlyIncomeMinor:{'2026-13':100}}));assert.throws(()=>migrateData({...d,monthlyIncomeMinor:{'2026-10':-1}}));});
 test('Malformed statement controls are rejected during restore',()=>{validateStatementBatches([]);const b={id:'batch',source:'bank',name:'test.csv',createdAt:1,count:1,from:'2026-10-01',to:'2026-10-31',rowIds:['row']};validateStatementBatches([b]);assert.throws(()=>validateStatementBatches([{...b,openingMinor:1.1}]));assert.throws(()=>validateStatementBatches([{...b,rowIds:['row','row']}]));assert.throws(()=>migrateData({...getDefaultData(),statementBatches:[{...b,count:-1}]}));});
+test('Paytm IPO blocks/releases retain their references without becoming payments',()=>{
+ const summary='Total Money Paid - Rs.0 0 Payments made Total Money Received + Rs.0 0 Payments received';
+ for(const [label,direction] of [['Money blocked for TEST IPO','blocked'],['Money unblocked for TEST IPO','unblocked']]){
+  const pages=singleDayPDF(summary,undefined,undefined,'Rs.25');pages[0].items.find(i=>i.str==='Paid to TEST').str=label;
+  const rows=parsePaytmPages(pages,'ipo');assert.equal(rows.length,1);assert.equal(rows[0].direction,direction);assert.equal(rows[0].reference,'000012345678');assert.equal(classify(rows[0],habits()).action,'ignore');validateStatementRows(rows);
+  const d=migrateData({...getDefaultData(),statementRows:rows});const restored=mergeBackup(migrateData(getDefaultData()),JSON.stringify({data:d}));assert.equal(restored.statementRows[0].direction,direction);
+  assert.throws(()=>saveStatementPosting([],rows[0],txn()),/blocked|non-payment/i);
+ }
+ const pages=singleDayPDF(summary,undefined,undefined,'Rs.25');assert.throws(()=>parsePaytmPages(pages,'unknown'),/direction/);
+});
+test('Annual Paytm period resolves both occurrences of its boundary month',()=>{
+ const summary='Total Money Paid - Rs.25 1 Payment made Total Money Received + Rs.0 0 Payment received';
+ for(const [date,expected]of [['10 Nov','2025-11-10'],['08 Nov','2026-11-08']])assert.equal(parsePaytmPages(singleDayPDF(summary,"09 NOV'25 - 08 NOV'26",date),'annual')[0].date,expected);
+});
+test('Unique manual merchant matches skip posting across statement sources',()=>{
+ for(const source of ['bank','paytm']){const d=migrateData(getDefaultData());d.transactions=[txn({heading:'New Vendor',statementReferences:[]})];const p=classifyImport([row({source})],d,habits())[0];assert.equal(p.exactReference,true);assert.match(p.classification.reason,/merchant/i);}
+});
+test('Ambiguous or conflicting manual duplicate candidates remain reviewable',()=>{
+ const d=migrateData(getDefaultData());d.transactions=[txn({heading:'New Vendor'})];
+ const same=row({id:'second',reference:'second'});assert(classifyImport([row(),same],d,habits()).every(p=>!p.exactReference));
+ for(const patch of [{account:'Other'},{date:'2026-10-11'},{amountMinor:2499},{type:'Income Misc'},{status:'deleted'},{heading:'Different merchant'},{statementReferences:['different-reference']}]){d.transactions=[txn({heading:'New Vendor',...patch})];assert.equal(classifyImport([row()],d,habits())[0].exactReference,false);}
+ d.transactions=[txn({heading:'New Vendor'}),txn({id:'second',heading:'New Vendor'})];assert.equal(classifyImport([row()],d,habits())[0].exactReference,false);
+});
 function singleDayPDF(summary,period="13 OCT'26 - 13 OCT'26",date='13 Oct',amount='- Rs.25'){
  const item=(str,x,y)=>({str,x,y});return [{width:600,items:[item(`Paytm Statement for ${period} ${summary}`,0,800),item(date,22,700),item('Paid to TEST',91,699),item('UPI Ref No: 000012345678',91,670),item('Note: Food',288,699),item('HDFC Bank - 80',414,699),item(amount,492,700)]}];
 }
@@ -169,3 +192,25 @@ test('Deleted search includes filename and source and sorts amounts numerically'
 test('Deletion method survives migration, JSON export and backup merge without changing amounts or unknown fields',()=>{const d=deletedFixture();d.transactions[0].customFutureField='keep';const round=migrateData(JSON.parse(JSON.stringify(d)));assert.equal(round.transactions[0].deletedVia,'individual');assert.equal(round.transactions[0].amountMinor,2501);assert.equal(round.transactions[0].customFutureField,'keep');const merged=mergeBackup(round,JSON.stringify({backupFormatVersion:4,data:d}));assert.equal(merged.transactions.find(t=>t.id==='first').deletedVia,'individual');assert.throws(()=>migrateData({...d,transactions:[txn({deletedVia:'made-up'})]}),/deletion method/);});
 test('Removing an import records its deletion method for its owned entries only',()=>{const d=removeStatementImport(removalFixture(),'batch1',true);assert.equal(d.transactions.find(t=>t.id==='owned').deletedVia,'import-removal');assert.equal(d.transactions.find(t=>t.id==='manual').deletedVia,undefined);});
 console.log(`${n} final statement, habit and recurring checks passed`);
+
+test('Expense credits stay separate, net spending and match a source credit',()=>{
+ const d=migrateData(getDefaultData());d.transactions=[txn({id:'gross',currency:'INR',amount:1000,amountMinor:100000,majorCategory:'Food'}),txn({id:'reimbursement',currency:'INR',amount:-700,amountMinor:-70000,majorCategory:'Food'})];
+ const restored=mergeBackup(migrateData(getDefaultData()),JSON.stringify({data:d}));assert.equal(restored.transactions.length,2);
+ const stats=load('src/data/dashboardAnalytics.ts').dashboardAnalytics(restored,'2026-10','2026-10-31');assert.equal(stats.expenseMinor,30000);assert.equal(stats.categories.find(g=>g.name==='Food').amountMinor,30000);assert.equal(restored.transactions[1].financialEffect.income,0);
+ const credit=row({direction:'credit',amountMinor:70000});assert.equal(candidates(credit,restored.transactions)[0].id,'reimbursement');assert.equal(rowState({...credit,transactionId:'reimbursement',status:'matched'},restored.transactions).status,'matched');
+ assert.throws(()=>mergeBackup(migrateData(getDefaultData()),JSON.stringify({data:{...d,transactions:[txn({type:'CAPEX',amount:-7,amountMinor:-700})]}})));
+});
+
+test('Typed account setup maps methods without overwriting other accounts',()=>{
+ const {mapTypedAccount}=load('src/data/accountTypes.ts');let d=migrateData(getDefaultData());const original=structuredClone(d.sourceMappings);const account={id:'typed-account',kind:'source',name:'Example SB',accountType:'SB',active:true,order:99,updatedAt:1};d.masters.push(account);d=mapTypedAccount(d,account);
+ for(const mode of d.masters.filter(m=>m.kind==='paymentMode')){assert.equal(d.sourceMappings[mode.id].includes(account.id),['UPI','Debit Card','Net banking','Bank Transfer'].includes(mode.name));for(const id of original[mode.id]||[])assert(d.sourceMappings[mode.id].includes(id));}
+ const restored=mergeBackup(migrateData(getDefaultData()),JSON.stringify({data:d}));assert.equal(restored.masters.find(m=>m.id===account.id).accountType,'SB');
+ const changed=mapTypedAccount(d,{...account,accountType:'CC'});assert(changed.sourceMappings[d.masters.find(m=>m.kind==='paymentMode'&&m.name==='CC').id].includes(account.id));assert(!changed.sourceMappings[d.masters.find(m=>m.kind==='paymentMode'&&m.name==='UPI').id].includes(account.id));
+});
+
+test('A credit-only month stays negative and CSV preserves its sign',()=>{
+ const d=migrateData(getDefaultData());d.transactions=[txn({id:'credit-only',amount:-700,amountMinor:-70000,currency:'INR',majorCategory:'Food'})];const migrated=migrateData(d);const stats=load('src/data/dashboardAnalytics.ts').dashboardAnalytics(migrated,'2026-10','2026-10-31');assert.equal(stats.expenseMinor,-70000);assert.equal(stats.smallMinor,0);const csv=load('src/data/importExport.ts');const grid=csv.parseCSV(csv.buildCSV(['Date','Amount','Transaction Type','Major Category'],[['2026-10-12',-700,'Revenue Expense','Food']]));const preview=csv.previewImport(grid,migrated);assert.equal(preview[0].transaction.amount,-700);assert.equal(preview[0].errors.length,0);
+ const {importSummary}=load('src/data/importSummary.ts');const summary=importSummary({id:'b',count:1,rowIds:['r']},[{...row({id:'r',batchId:'b',amountMinor:70000,direction:'credit',status:'matched',transactionId:'credit-only'})}],migrated.transactions);assert.equal(summary.expenseMinor,-70000);assert.equal(summary.expenseCreditMinor,70000);assert.equal(summary.creditMinor,0);
+});
+
+test('Restore retains previously unknown root settings from the incoming backup',()=>{const d=migrateData(getDefaultData());d.futureSetting={preserve:true};const restored=mergeBackup(migrateData(getDefaultData()),JSON.stringify({data:d}));assert.equal(restored.futureSetting.preserve,true);});

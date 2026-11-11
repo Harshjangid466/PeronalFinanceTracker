@@ -1,3 +1,4 @@
+import {defaultAccountType,ACCOUNT_TYPES,type AccountType,compatibleModes} from './accountTypes';
 import type { AppData, Transaction, RuleDefinition, CustomFieldDefinition } from './types';
 import {validateAlerts} from './alerts';
 import {validateStatementRows,validateHabits,validateStatementBatches} from './statements';
@@ -5,12 +6,13 @@ import {applyRemovalTombstones,validateEntryMetadata} from './entryManagement';
 import {applyCardOffsetState} from './cardReconciliation';
 
 export type MasterKind = 'source' | 'paymentMode' | 'category' | 'subCategory' | 'person' | 'merchant' | 'purpose' | 'incomeType' | 'investmentType' | 'dropdownOption';
-export interface MasterItem { id: string; kind: MasterKind; name: string; active: boolean; order: number; parentId?: string; updatedAt: number }
+export interface MasterItem { accountType?:AccountType; id: string; kind: MasterKind; name: string; active: boolean; order: number; parentId?: string; updatedAt: number }
 export const canonicalSources = ['Cash'];
 export const canonicalModes = ['Cash','UPI','Debit Card','CC','Net banking','Bank Transfer','Wallet'];
 export const canonicalPeople: string[] = [];
 export const canonicalCategories = ["Food", "Commute", "Fuel", "Housing", "Bills & Utilities", "Entertainment/Internet", "Travel/Trip", "Shopping", "Health", "Personal", "Insurance & Taxes", "Miscellaneous"];
 const aliases: Partial<Record<MasterKind, Record<string,string>>> = {paymentMode:{'Credit Card':'CC','Net Banking':'Net banking'}};
+
 export const canonicalName = (kind: MasterKind, name: string) => aliases[kind]?.[name] || name;
 export function stableId(kind: string, name: string): string {
   let hash = 2166136261; for (const c of name) hash = Math.imul(hash ^ c.charCodeAt(0),16777619);
@@ -31,6 +33,8 @@ export function migrateData(input: AppData): AppData {
   const upgrading = data.schemaVersion < 4 || !data.masters;
   data.masters ||= []; data.sourceMappings ||= {}; data.suppressedPatterns ||= [];
   data.rules ||= []; data.actionLog ||= []; data.learningEnabled ??= false;
+  for(const m of data.masters){if(m.accountType!==undefined&&(m.kind!=='source'||!ACCOUNT_TYPES.includes(m.accountType)))throw Error('Invalid account type.');if(m.kind==='source')m.accountType??=defaultAccountType(m.name);}
+
   const ensure = (kind: MasterKind, raw: string, parentId?: string, active = true): MasterItem | undefined => {
     if (!raw) return undefined;
     const name = upgrading ? canonicalName(kind, raw) : raw;
@@ -53,6 +57,7 @@ export function migrateData(input: AppData): AppData {
   };
   data.transactions.forEach(t=>{
     attach(t as unknown as Record<string,unknown>);
+    if(!Number.isFinite(t.amountMinor ?? t.amount*100)||(t.amountMinor ?? t.amount*100)<0&&t.type!=='Revenue Expense')throw Error('Only revenue expense credits may have a negative amount.');
     t.amountMinor = Math.round(t.amountMinor ?? t.amount*100); t.amount=t.amountMinor/100; t.schemaVersion=4;
     t.financialEffect = financialEffect(t.type,t.amountMinor);
   });
@@ -77,6 +82,8 @@ export function migrateData(input: AppData): AppData {
       t.customOptionIds[f.id]=names.map(name=>data.masters!.find(m=>m.kind==='dropdownOption'&&m.parentId===f.id&&m.name===name)?.id).filter((id):id is string=>!!id);
     }
   }
+  for(const m of data.masters.filter(m=>m.kind==='source'))m.accountType??=defaultAccountType(m.name);
+  for(const mode of data.masters.filter(m=>m.kind==='paymentMode'))if(data.sourceMappings[mode.id]===undefined)data.sourceMappings[mode.id]=data.masters.filter(m=>m.kind==='source'&&m.accountType&&compatibleModes(m.accountType).includes(mode.name)).map(m=>m.id);
   data.schemaVersion=4;
   return projectMasters(data);
 }

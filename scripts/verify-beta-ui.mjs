@@ -19,7 +19,7 @@ try{
  await page.getByRole('heading',{name:'Accounts & ways to pay',exact:true}).waitFor();
  await page.getByRole('button',{name:'Configure accounts & payments',exact:true}).click();
  await page.getByLabel('Account name',{exact:true}).fill('Setup bank');await page.getByRole('button',{name:'Add account and link methods',exact:true}).click();
- await page.getByLabel('Account type',{exact:true}).selectOption('Credit card');await page.getByLabel('Account name',{exact:true}).fill('Setup credit card');await page.getByRole('button',{name:'Add account and link methods',exact:true}).click();
+ await page.getByLabel('Account type',{exact:true}).filter({visible:true}).selectOption('Credit card');await page.getByLabel('Account name',{exact:true}).fill('Setup credit card');await page.getByRole('button',{name:'Add account and link methods',exact:true}).click();
  const linked=await page.evaluate(()=>{const d=JSON.parse(localStorage.getItem('finance-beta-data-v2'));const card=d.masters.find(m=>m.kind==='source'&&m.name==='Setup credit card'),mode=d.masters.find(m=>m.kind==='paymentMode'&&m.name==='CC');return d.sourceMappings[mode.id].includes(card.id);});assert.equal(linked,true);
  await page.screenshot({path:'artifacts/beta/account-payment-setup.png',fullPage:false});
  await page.keyboard.press('Escape');await page.waitForTimeout(250);await page.getByRole('heading',{name:'Accounts & ways to pay',exact:true}).waitFor();

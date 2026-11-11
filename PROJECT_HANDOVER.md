@@ -39,3 +39,11 @@ Beta batch, 28 October: merchant/narration/history category suggestions, manual/
 ## 0.1.0-beta.3 — iPhone PDF import compatibility
 
 Use a shared getReader/read text extractor instead of PDF.js stream async iteration, which fails in some Safari releases. Applies to bank/card and Paytm PDFs. Reproduced with the missing Safari API and verified using plain and AES-256-protected synthetic HDFC statements, source balance checks and invalid-password cases. Ledger records, beta onboarding/storage boundaries and disabled integrations are unchanged. The exact user statement and physical iPhone have not been tested. Hosted release requires explicit authorisation.
+
+## 0.1.0-beta.4 — source sync, 11 November 2026
+
+Batches the personal-app statement/import fixes through main commit 4479143 into beta: stronger duplicate matching, Paytm year boundaries and non-payment events, Axis credit markers, HDFC continuation-page parsing, and clearer rejection of ICICI history exports without statement controls. Adds typed accounts with automatic payment links, CAPEX-specific review fields, and separate negative revenue-expense credits that reduce dashboard spending.
+
+Beta keeps generic defaults, its onboarding, isolated storage, optional feedback and disabled financial capture/cloud analysis. Savings/current accounts link to UPI, Debit Card, Net banking and Bank Transfer; card/wallet/cash use their matching methods. No personal accounts, financial files or passwords are included. Invited accounts/cloud sync from personal main are outside this beta batch.
+
+GitHub synchronization only: commit includes [skip netlify]. No hosted release is authorized by this batch. Validation includes typecheck/build, statement/parser/card regressions, beta data/privacy invariants and local mobile/desktop browser flows using synthetic records. Physical iPhone validation remains outstanding.

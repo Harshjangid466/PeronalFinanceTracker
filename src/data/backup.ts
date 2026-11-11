@@ -19,12 +19,12 @@ export function mergeBackup(current:AppData, text:string):AppData {
   for(const t of source.transactions){
     if(!t.id || typeof t.id!=='string')throw new Error('Transaction IDs are required.');
     if(ids.has(t.id))throw new Error('Duplicate transaction IDs in the backup.'); ids.add(t.id);
-    if(!Number.isFinite(t.amountMinor ?? Number(t.amount)*100) || (t.amountMinor ?? Number(t.amount)*100)<0)throw new Error('Invalid transaction amount.');
+    if(!Number.isFinite(t.amountMinor ?? Number(t.amount)*100) || ((t.amountMinor ?? Number(t.amount)*100)<0&&normalizeTransactionType(t.type)!=='Revenue Expense'))throw new Error('Invalid transaction amount.');
     if(!/^\d{4}-\d{2}-\d{2}$/.test(t.date) || Number.isNaN(Date.parse(t.date)))throw new Error('Invalid transaction date.');
     if(t.status && !['active','cancelled','deleted'].includes(t.status))throw new Error('Invalid transaction status.');
   }
   const incoming=migrateData({...structuredClone(current),...source,cardSettlements:source.cardSettlements||[],masters:source.masters,sourceMappings:source.sourceMappings,transactions:source.transactions.map((t:Transaction)=>({...t,type:normalizeTransactionType(t.type),customFields:t.customFields || {},status:t.status || 'active'}))});
-  const result=structuredClone(current) as AppData & Record<string,unknown>;
+  const result={...structuredClone(incoming),...structuredClone(current)} as AppData & Record<string,unknown>;
   result.permanentlyDeletedTransactionIds=[...new Set([...(current.permanentlyDeletedTransactionIds||[]),...(incoming.permanentlyDeletedTransactionIds||[])])];
   result.removedStatementBatchIds=[...new Set([...(current.removedStatementBatchIds||[]),...(incoming.removedStatementBatchIds||[])])];
   for(const key of arrayKeys){

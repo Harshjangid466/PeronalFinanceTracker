@@ -53,4 +53,25 @@ test('Bank header wins over another bank name in its narration',()=>{const pages
 
 test('Printed full period includes days without bank movements',()=>{const pages=hdfcBank();pages[0].items.push(item('From : 01/04/2026',34,620),item('To : 30/04/2026',154,620));const r=parseBankPdf(pages,'b','Bank');assert.equal(r.from,'2026-04-01');assert.equal(r.to,'2026-04-30');assert.equal(r.rows[0].date,'2026-04-01');});
 test('Post-period bank movement needs an explicit in-period value date',()=>{const pages=hdfcBank();pages[0].items=pages[0].items.map(i=>i.str==='01/04/26'?{...i,str:'01/05/26'}:i);pages[0].items.push(item('From : 01/04/2026',34,620),item('To : 30/04/2026',154,620),item('30/04/26',362,585));const r=parseBankPdf(pages,'b','Bank');assert.equal(r.rows[0].date,'2026-05-01');assert.equal(r.rows[0].valueDate,'2026-04-30');pages[0].items=pages[0].items.filter(i=>i.str!=='30/04/26');assert.throws(()=>parseBankPdf(pages,'b','Bank'));});
+test('HDFC lower-page credits and left-shifted plus signs stay in the table',()=>{
+ const p=structuredClone(hdfc);p.items=p.items.map(i=>i.str==='+'?{...i,x:519.7,y:69}:i.y===270?{...i,y:97}:i.y===255?{...i,y:69}:i.str==='Cash Back Summary'?{...i,y:40}:i.y===180?{...i,y:20}:i);
+ const r=parseBankPdf([p],'b','Card');assert.equal(r.rows.length,2);assert.equal(r.creditMinor,1000);assert.equal(r.rows[1].direction,'credit');assert.equal(r.rows[1].note,'CREDIT CARD PAYMENT (Ref# 000001)');
+});
+test('HDFC whole-rupee closing rounding is reported without changing movements',()=>{
+ const p=structuredClone(hdfc);p.items=p.items.map(i=>i.str==='100.00'?{...i,str:'100.40'}:i);const r=parseBankPdf([p],'b','Card');assert.equal(r.openingMinor,10040);assert.equal(r.closingMinor,11000);assert.equal(r.creditMinor,1000);assert.match(r.warning,/rounded.*0.4/i);
+ p.items=p.items.map(i=>i.str==='100.40'?{...i,str:'101.40'}:i);assert.throws(()=>parseBankPdf([p],'b','Card'),/summary itself/);
+});
+test('ICICI prior-cycle purchase dates are retained when cycle totals agree',()=>{
+ const p=structuredClone(icici);p.items.push(item('Statement period : April 02, 2026 to April 30, 2026',40,53));const r=parseBankPdf([p],'b','Card');assert.equal(r.rows[0].date,'2026-04-01');assert.equal(r.from,'2026-04-02');assert.match(r.warning,/before.*period/i);
+ p.items=p.items.map(i=>i.str==='01/04/2026'?{...i,str:'01/05/2026'}:i);assert.throws(()=>parseBankPdf([p],'b','Card'),/outside printed period/);
+});
 console.log(checks+' final bank PDF checks passed.');
+
+test('Axis standalone closing CR marker retains a credit balance',()=>{
+ const p=axis();p.items=p.items.map(i=>i.str==='100.00 Dr'?{...i,str:'100.00 Cr'}:i.str==='110.00'?{...i,str:'90.00'}:i);p.items.push(item('Cr',450,775));const r=parseBankPdf([p],'b','Card');assert.equal(r.openingMinor,-10000);assert.equal(r.closingMinor,-9000);
+});
+test('HDFC continuation page uses its own date and description column positions',()=>{
+ const p=structuredClone(hdfc);p.items=p.items.filter(i=>i.y!==255);const continuation=page([item('DATE & TIME',25.5,750),item('TRANSACTION DESCRIPTION',149,750),item('AMOUNT',522,750),item('PI',564,750),item('02/04/2026| 20:16',25.5,700),item('CREDIT CARD PAYMENT',149,700),item('+',516,700),item('C',522,700),item('10.00',527,700)]);const r=parseBankPdf([p,continuation],'b','Card');assert.equal(r.rows.length,2);assert.equal(r.rows[1].sourcePage,2);assert.equal(r.rows[1].direction,'credit');assert.equal(r.creditMinor,1000);
+});
+
+test('ICICI history exports without financial controls explain why monthly statements are needed',()=>{assert.throws(()=>parseBankPdf([page([item('ICICI Bank',20,800),item('Statement Period',20,760),item('Ref. Number',80,700),item('Transaction Details',180,700)])],'b','Card'),/no statement balance\/total controls/);});

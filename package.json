@@ -1,7 +1,7 @@
 {
   "name": "finance-tracker-friends-beta",
   "private": true,
-  "version": "0.1.0-beta.3",
+  "version": "0.1.0-beta.4",
   "type": "module",
   "scripts": {
     "predev": "node scripts/prepare-ocr.mjs",
@@ -25,6 +25,8 @@
     "test:visual-analytics": "node scripts/verify-visual-analytics.cjs",
     "test:pdf-upload": "node scripts/verify-pdf-text.cjs && node scripts/verify-pdf-upload.mjs && node scripts/verify-pdf-upload.mjs --compat",
     "test:bank-pdf-upload": "node scripts/verify-bank-pdf-upload.mjs && node scripts/verify-bank-pdf-upload.mjs --compat",
+    "test:statement-import-ui": "node scripts/verify-statement-import-ui.mjs",
+    "test:expense-credits-ui": "node scripts/verify-expense-credits-ui.mjs",
     "test:cloud-ai": "node scripts/verify-cloud-ai.cjs",
     "typecheck:functions": "tsc --noEmit -p tsconfig.functions.json",
     "test:beta": "node scripts/verify-beta.cjs",

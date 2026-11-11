@@ -12,6 +12,8 @@ export type TransactionType =
   | 'Income Misc'
   | 'Investment';
 
+export const CAPEX_CATEGORIES=['Electronics','Gadgets','Furniture','Vehicle','Home Appliance','Tools/Equipment','Other'];
+
 export const CORE_TRANSACTION_TYPES: TransactionType[] = [
   'Revenue Expense',
   'Lent',

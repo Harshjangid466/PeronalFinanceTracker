@@ -5,7 +5,7 @@ import {MastersManager,MappingManager,inputStyle,buttonStyle} from '@/components
 import {clearSheetDraft} from '@/components/NavigationGuard';
 import {type MasterItem} from '@/data/model';
 
-const kinds={Bank:['UPI','Debit Card','Net banking','Bank Transfer'],'Credit card':['CC'],Wallet:['Wallet'],Cash:['Cash']};
+const kinds={'Current account':['UPI','Debit Card','Net banking','Bank Transfer'],Bank:['UPI','Debit Card','Net banking','Bank Transfer'],'Credit card':['CC'],Wallet:['Wallet'],Cash:['Cash']};
 export function AccountSetup(){
  const {allData,configure}=useApp();
  const [kind,setKind]=useState<keyof typeof kinds>('Bank'),[name,setName]=useState(''),[methods,setMethods]=useState<string[]>(kinds.Bank),[status,setStatus]=useState('');
@@ -14,7 +14,7 @@ export function AccountSetup(){
   const label=name.trim();if(!label||!activeMethods.some(m=>methods.includes(m.name))){setStatus('Enter an account name and choose at least one way to pay.');return;}
   const existing=allData.masters?.find(m=>m.kind==='source'&&m.name.toLowerCase()===label.toLowerCase());
   if(existing){setStatus('That account already exists. Edit its payment links below.');return;}
-  const source:MasterItem={id:uid(),kind:'source',name:label,active:true,order:allData.accounts.length,updatedAt:Date.now()};
+  const source:MasterItem={id:uid(),kind:'source',name:label,accountType:kind==='Bank'?'SB':kind==='Current account'?'Current':kind==='Credit card'?'CC':kind,active:true,order:allData.accounts.length,updatedAt:Date.now()};
   const sourceMappings={...allData.sourceMappings};
   for(const method of activeMethods.filter(m=>methods.includes(m.name)))sourceMappings[method.id]=[...new Set([...(sourceMappings[method.id]||[]),source.id])];
   configure({masters:[...(allData.masters||[]),source],sourceMappings});clearSheetDraft();setName('');setStatus(`${label} added with its payment links.`);
