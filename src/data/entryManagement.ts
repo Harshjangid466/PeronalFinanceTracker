@@ -1,6 +1,9 @@
 import type {AppData,Transaction} from './types';
 import type {StatementBatch,StatementRow} from './statements';
-import {cardOffsetLocks} from './cardReconciliation';
+import {cardOffsetLocks,cardOffsetRestoreBlock} from './cardReconciliation';
+import {transferLocks} from './transferLinks';
+export const entryReconciliationLocks=(data:AppData,id:string)=>cardOffsetLocks(data,id)||transferLocks(data,id);
+export const entryRestoreBlock=(data:AppData,id:string)=>cardOffsetRestoreBlock(data,id)||(transferLocks(data,id)?'Undo the transfer link in Imports & review to restore its original entries together.':'');
 
 export const entrySourceLabels={manual:'Manual','paytm-pdf':'Paytm PDF','bank-pdf':'Monthly reconciliation PDF','excel-csv':'Excel / CSV import',recurring:'Recurring','bank-alert':'Bank alert',legacy:'Older / unknown'};
 export function statementEntrySource(row:StatementRow,batch?:StatementBatch):NonNullable<Transaction['entrySource']>{
@@ -32,6 +35,7 @@ export function applyRemovalTombstones(data:AppData):AppData{
 }
 export function removeStatementImport(data:AppData,id:string,deletePosted:boolean):AppData{
  const preview=importRemovalPreview(data,id);if(!preview.batch)return data;
+ if(data.transferLinks?.some(g=>g.status==='active'&&g.originalRows.some(r=>preview.rows.some(x=>x.id===r.id))))throw Error('Undo the transfer link before removing a statement used by it.');
  if(data.cardSettlements?.some(g=>g.status==='active'&&g.originalRows.some(r=>preview.rows.some(x=>x.id===r.id))))throw Error('Undo the card offset before removing a statement used by that offset.');
  const ids=new Set(deletePosted?preview.deletable.map(t=>t.id):[]),now=Date.now();
  const transactions=data.transactions.map(t=>{
@@ -42,11 +46,12 @@ export function removeStatementImport(data:AppData,id:string,deletePosted:boolea
 }
 export function permanentlyDeleteEntry(data:AppData,id:string):AppData{
  if(cardOffsetLocks(data,id))throw Error('Undo the card offset before permanently deleting its original entries.');
+ if(transferLocks(data,id))throw Error('Undo the transfer link before permanently deleting its original entries.');
  const t=data.transactions.find(t=>t.id===id);if(!t||t.status!=='deleted')throw Error('Only an entry in Deleted Transactions can be permanently deleted.');
  return applyRemovalTombstones({...data,permanentlyDeletedTransactionIds:[...new Set([...(data.permanentlyDeletedTransactionIds||[]),id])],skippedOccurrences:t.recurringTemplateId&&t.recurringOccurrenceDate?[...new Set([...(data.skippedOccurrences||[]),`${t.recurringTemplateId}|${t.recurringOccurrenceDate}`])]:data.skippedOccurrences});
 }
 export function validateEntryMetadata(data:AppData){
- for(const t of data.transactions)if(t.deletedVia!==undefined&&!['individual','import-removal','import-undo','receivable-removal','cc-offset'].includes(t.deletedVia))throw Error('Invalid deletion method');
+ for(const t of data.transactions)if(t.deletedVia!==undefined&&!['individual','import-removal','import-undo','receivable-removal','cc-offset','transfer-link'].includes(t.deletedVia))throw Error('Invalid deletion method');
  for(const key of ['permanentlyDeletedTransactionIds','removedStatementBatchIds'] as const){const ids=data[key];if(ids!==undefined&&(!Array.isArray(ids)||ids.some(id=>typeof id!=='string'||!id)||new Set(ids).size!==ids.length))throw Error('Invalid deletion history');}
  for(const t of data.transactions){const s=t.entrySource;if(s!==undefined&&(!s||typeof s!=='object'||!Object.prototype.hasOwnProperty.call(entrySourceLabels,s.kind)||s.batchId!==undefined&&typeof s.batchId!=='string'||s.fileName!==undefined&&typeof s.fileName!=='string'))throw Error('Invalid entry source');}
 }

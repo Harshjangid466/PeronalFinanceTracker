@@ -20,6 +20,7 @@ interface TransactionFormProps {
   onClose?: () => void;
   prefill?: Partial<Transaction>;
   isModal?: boolean;
+  expenseCreditOnly?: boolean;
 }
 
 export function TransactionForm({
@@ -29,6 +30,7 @@ export function TransactionForm({
   onClose,
   prefill,
   isModal = false,
+  expenseCreditOnly = false,
 }: TransactionFormProps) {
   const {
     data,
@@ -61,7 +63,7 @@ export function TransactionForm({
   const [amount, setAmount] = useState<string>(
     editTransaction ? String(Math.abs(editTransaction.amount)) : prefill?.amount ? String(Math.abs(prefill.amount)) : ''
   );
-  const [expenseCredit,setExpenseCredit]=useState((editTransaction?.amount??prefill?.amount??0)<0);
+  const [expenseCredit,setExpenseCredit]=useState(expenseCreditOnly||(editTransaction?.amount??prefill?.amount??0)<0);
   const [date, setDate] = useState<string>(
     editTransaction ? editTransaction.date : prefill?.date || todayISO()
   );
@@ -233,6 +235,7 @@ export function TransactionForm({
   }
 
   const isValid = useMemo(() => {
+    if(expenseCreditOnly&&(type!=='Revenue Expense'||!expenseCredit))return false;
     const amt = parseFloat(amount);
     if (!Number.isFinite(amt) || amt <= 0 || !Number.isSafeInteger(Math.round(amt*100)) || Math.abs(amt*100-Math.round(amt*100))>1e-6) return false;
     if (!date) return false;
@@ -264,6 +267,7 @@ export function TransactionForm({
     investmentType,
     applicableCustomFields,
     customFieldValues,
+    expenseCreditOnly,expenseCredit,
   ]);
 
   function handleSubmit() {
@@ -365,6 +369,7 @@ export function TransactionForm({
             <button
               key={t}
               type="button"
+              disabled={expenseCreditOnly&&t!=='Revenue Expense'}
               onClick={() => {
                 guard.mark();setType(t);
                 // Set default categories if switching
@@ -428,7 +433,7 @@ export function TransactionForm({
         </div>
       )}
 
-      {type==='Revenue Expense'&&<label className="block text-sm">Expense entry<select aria-label="Expense entry direction" className="w-full p-3 rounded-xl bg-slate-100 dark:bg-slate-800" value={expenseCredit?'credit':'debit'} onChange={e=>setExpenseCredit(e.target.value==='credit')}><option value="debit">Expense paid</option><option value="credit">Reimbursement / refund (reduces spending)</option></select></label>}
+      {type==='Revenue Expense'&&<label className="block text-sm">Expense entry<select aria-label="Expense entry direction" disabled={expenseCreditOnly} className="w-full p-3 rounded-xl bg-slate-100 dark:bg-slate-800" value={expenseCredit?'credit':'debit'} onChange={e=>setExpenseCredit(e.target.value==='credit')}><option value="debit">Expense paid</option><option value="credit">Reimbursement / refund (reduces spending)</option></select></label>}
       {/* Amount Input */}
       <div>
         <label className="text-xs font-semibold text-slate-600 dark:text-slate-400 block mb-1">

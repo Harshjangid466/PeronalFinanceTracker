@@ -13,6 +13,7 @@ import {AlertInbox} from '@/components/AlertInbox';
 import {TransactionDetails} from '@/components/TransactionDetails';
 import {DeletedTransactions} from '@/components/DeletedTransactions';
 import {SwipeTransactionRow} from '@/components/SwipeTransactionRow';
+import {ReimbursementTracker} from '@/components/ReimbursementTracker';
 import {entrySource,entrySourceLabels} from '@/data/entryManagement';
 const StatementWorkspace=lazy(()=>import('@/components/StatementWorkspace').then(m=>({default:m.StatementWorkspace})));
 
@@ -126,6 +127,7 @@ export function TransactionsScreen({active=true,sharedLaunch}:{active?:boolean;s
       <div role="tablist" aria-label="Transaction views" className="flex gap-1 border-b dark:border-slate-700 mb-5 print:hidden">{([['history','Transactions'],['imports','Imports & review']] as const).map(([key,label])=><button key={key} id={`transaction-${key}-tab`} role="tab" tabIndex={view===key?0:-1} onKeyDown={e=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(e.key)){e.preventDefault();const next=e.key==='Home'?'history':e.key==='End'?'imports':view==='history'?'imports':'history';switchView(next);document.getElementById(`transaction-${next}-tab`)?.focus();}}} aria-selected={view===key} aria-controls={`transaction-${key}-panel`} onClick={()=>switchView(key)} className={`px-4 py-3 text-sm border-b-2 ${view===key?'border-cyan-600 text-cyan-600 font-semibold':'border-transparent text-slate-500'}`}>{label}</button>)}</div>
       <div id="transaction-imports-panel" role="tabpanel" aria-labelledby="transaction-imports-tab" hidden={view!=='imports'}>{importsSeen&&<Suspense fallback={<p>Opening statement review…</p>}><StatementWorkspace sharedLaunch={sharedLaunch} active={active&&view==='imports'} onShowHistory={()=>switchView('history')}/></Suspense>}</div>
       <div id="transaction-history-panel" role="tabpanel" aria-labelledby="transaction-history-tab" hidden={view!=='history'} className="max-w-3xl mx-auto">
+      <ReimbursementTracker active={historyActive}/>
       {/* Universal Search (Section Q & AB) */}
       <div className="flex gap-2 mb-3 print:hidden">
         <div className="relative flex-1">

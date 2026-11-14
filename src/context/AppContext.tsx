@@ -1,4 +1,6 @@
 import {mapTypedAccount} from '@/data/accountTypes';
+import {applyTransfer,undoTransfer,transferLocks} from '@/data/transferLinks';
+import {trackReimbursement,changeReimbursement} from '@/data/reimbursements';
 import {applyCategoryProposals,type CategoryProposal} from '@/data/merchantCategories';
 import {nextRecurringDate,processRecurringDue,recurringIsDue} from '@/data/recurring';
 import { createContext, useContext, useEffect, useState, useMemo, useRef, type ReactNode } from 'react';
@@ -112,6 +114,10 @@ interface AppContextValue {
   removeStatementImport:(id:string,deletePosted:boolean)=>void;
   permanentlyDeleteTransaction:(id:string)=>void;
   configure: (updates:Partial<AppData>)=>void;
+  linkTransfer:(ids:string[],reason:string,confirmed:boolean)=>void;
+  unlinkTransfer:(id:string)=>void;
+  trackExpenseReimbursement:(expenseId:string,person:string,expectedMinor:number)=>void;
+  changeExpenseReimbursement:(id:string,action:'credit'|'unlink'|'cancel'|'expected',value:string|number)=>void;
   logAction: (action:string, entity:string, description:string)=>void;
   manageMaster: (item:MasterItem)=>void;
   removeMaster: (id:string)=>void;
@@ -219,8 +225,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setData(prev=>{const next=applyCategoryProposals(prev,proposals,now);return {...next,actionLog:[...next.actionLog,{id:uid(),timestamp:now,actionType:'categorise',entityType:'transactions',entityId:proposals.map(p=>p.id).join(','),description:`Applied reviewed merchant categories to ${proposals.length} entries; amounts unchanged`}]};});
   }
   function configure(updates:Partial<AppData>) { setData(prev=>({...prev,...updates})); }
+  function linkTransfer(ids:string[],reason:string,confirmed:boolean){
+    if(!statementReady||statementError)throw Error('Statement history is not ready.');
+    const options={id:uid(),now:Date.now(),reason,confirmed};applyTransfer(allData,ids,options);setData(prev=>applyTransfer(prev,ids,options));
+  }
+  function unlinkTransfer(id:string){if(!statementReady||statementError)throw Error('Statement history is not ready.');const now=Date.now();undoTransfer(allData,id,now);setData(prev=>undoTransfer(prev,id,now));}
+  function trackExpenseReimbursement(expenseId:string,person:string,expectedMinor:number){const id=uid(),now=Date.now();trackReimbursement(allData,expenseId,person,expectedMinor,id,now);setData(prev=>trackReimbursement(prev,expenseId,person,expectedMinor,id,now));}
+  function changeExpenseReimbursement(id:string,action:'credit'|'unlink'|'cancel'|'expected',value:string|number){const now=Date.now();changeReimbursement(latestData.current,id,action,value,now);setData(prev=>changeReimbursement(prev,id,action,value,now));}
   function reviewCardRow(id:string,kind?:CardKind,hold?:boolean,reason='Awaiting refund / next statement'){
     if(!statementReady||statementError)throw Error('Statement history is not ready.');
+    if(allData.statementRows?.find(r=>r.id===id)?.transferLinkId)throw Error('Undo the transfer link before changing its source movement.');
     const update=(prev:AppData)=>{const row=prev.statementRows?.find(r=>r.id===id);if(!row||!isCardRow(row,prev.statementBatches||[])||row.cardSettlementId)throw Error('Choose an available credit-card movement.');if(kind&&(!Object.prototype.hasOwnProperty.call({purchase:1,payment:1,cashback:1,refund:1,fee:1,other:1},kind)))throw Error('Choose a valid card movement type.');if(kind&&((['payment','refund'].includes(kind)&&row.direction!=='credit')||(['purchase','fee'].includes(kind)&&row.direction!=='debit')))throw Error('Movement type does not agree with debit/credit direction.');return {...prev,statementRows:prev.statementRows!.map(r=>r.id===id?{...r,...(kind?{cardKind:kind}:{}),...(hold===undefined?{}:{cardHold:hold?{reason:reason.trim()||'Awaiting refund / next statement',createdAt:Date.now()}:undefined})}:r),actionLog:[...prev.actionLog,{id:uid(),timestamp:Date.now(),actionType:'review',entityType:'statement',entityId:id,description:kind?`Card movement classified: ${kind}`:hold?'Card movement held for later reconciliation':'Card movement released from hold'}]};};update(allData);setData(update);
   }
   function settleCardRows(ids:string[],details:CardOffsetDetails){
@@ -277,6 +291,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   function reviewStatement(id:string,action:'ignore'|'reopen'|'match'|'post',details:Partial<Transaction>={},reason=''){
     const savedRow=allData.statementRows?.find(r=>r.id===id);if(!savedRow)throw Error('Statement row not found.');
     if(savedRow.cardSettlementId)throw Error('Undo this card offset before reopening or posting its source movements.');
+    if(savedRow.transferLinkId)throw Error('Undo the transfer link before reopening or posting its source movements.');
     if(isCardRow(savedRow,allData.statementBatches||[])&&cardKind(savedRow)==='payment'&&['post','match'].includes(action))throw Error('A bill payment settles the card balance. Confirm it without posting spending or income.');
     if(savedRow.cardHold&&action==='post')throw Error('Release this movement from hold before posting it.');
     const current={...savedRow,account:details.account||savedRow.account};
@@ -320,7 +335,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   function logAction(action:string,entity:string,description:string) {
     setStoredData(prev=>({...prev,actionLog:[...prev.actionLog,{id:uid(),timestamp:Date.now(),actionType:action,entityType:entity,entityId:entity,description}]}));
   }
-  function restoreTransaction(id:string) {const blocked=cardOffsetRestoreBlock(allData,id);if(blocked)throw Error(blocked);setData(prev=>{const blocked=cardOffsetRestoreBlock(prev,id);if(blocked)throw Error(blocked);return {...prev,transactions:prev.transactions.map(t=>t.id===id?{...t,status:'active',deletedAt:undefined,deletedVia:undefined,updatedAt:Date.now()}:t)};}); }
+  function restoreTransaction(id:string) {if(transferLocks(allData,id))throw Error('Undo the transfer link to restore its original entries together.');const blocked=cardOffsetRestoreBlock(allData,id);if(blocked)throw Error(blocked);setData(prev=>{const blocked=cardOffsetRestoreBlock(prev,id);if(blocked||transferLocks(prev,id))throw Error(blocked||'Undo the transfer link first.');return {...prev,transactions:prev.transactions.map(t=>t.id===id?{...t,status:'active',deletedAt:undefined,deletedVia:undefined,updatedAt:Date.now()}:t)};}); }
   function removeImport(id:string,deletePosted:boolean){if(!statementReady||statementError)throw Error('Statement history is not ready.');setData(prev=>removeStatementImport(prev,id,deletePosted));}
   function permanentlyDeleteTransaction(id:string){permanentlyDeleteEntry(allData,id);setData(prev=>prev.transactions.some(t=>t.id===id&&t.status==='deleted')?permanentlyDeleteEntry(prev,id):prev);}
   function manageMaster(item:MasterItem) {
@@ -344,6 +359,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       };
       for(const key of ['transactions','recurring','frequentTransactions','quickExpenses','receivables','repayments'] as const) (next as unknown as Record<string,unknown>)[key]=next[key].map(r=>refresh(r as unknown as Record<string,unknown>));
       if(existing&&item.kind==='source')next.statementRows=next.statementRows?.map(r=>r.account===existing.name?{...r,account:item.name}:r);
+      if(existing)next.transferLinks=next.transferLinks?.map(g=>({...g,originalRows:g.originalRows.map(r=>item.kind==='source'&&r.account===existing.name?{...r,account:item.name}:r),previousTransactions:g.previousTransactions.map(t=>refresh(t as unknown as Record<string,unknown>) as unknown as Transaction)}));
       if(existing&&item.kind==='category'&&next.importHabits)next.importHabits={...next.importHabits,vendors:next.importHabits.vendors.map(v=>v.category===existing.name?{...v,category:item.name}:v),narrations:next.importHabits.narrations.map(n=>n.category===existing.name?{...n,category:item.name}:n)};
       next.rules=next.rules.map(r=>({...r,enabled:!item.active && [...r.conditions,...r.actions].some(c=>c.valueId===item.id)?false:r.enabled,conditions:r.conditions.map(c=>c.valueId===item.id?{...c,value:item.name}:c),actions:r.actions.map(c=>c.valueId===item.id?{...c,value:item.name}:c)}));
       return next;
@@ -487,6 +503,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }
 
   function updateTransaction(id: string, updates: Partial<Transaction>): Transaction | null {
+    if(transferLocks(allData,id))throw Error('Undo the transfer link before editing an excluded entry.');
     const current=allData.transactions.find(t=>t.id===id);if(!current)return null;
     const merged={...current,...updates,updatedAt:Date.now()};
     for(const field of Object.keys(masterFields))if(field in updates)delete (merged as unknown as Record<string,unknown>)[idFields[field]];
@@ -496,6 +513,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }
 
   function deleteTransaction(id: string) {
+    if(transferLocks(allData,id))throw Error('Undo the transfer link before changing an excluded entry.');
     setData((prev) => ({
       ...prev,
       transactions: prev.transactions.map((t) => t.id === id ? {...t,status:'deleted',deletedVia:'individual',deletedAt:Date.now(),updatedAt:Date.now()} : t),
@@ -1023,12 +1041,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // Backup & Restore (Section V)
   function exportBackup(): string {
-    logAction('backup','backup','Downloaded complete backup');
+    if(!statementReady&&!statementError)throw Error('Wait for statement history to finish opening before downloading a backup.');
+    const complete=statementReady&&!statementError,snapshot=latestData.current;
+    logAction('backup','backup',complete?'Requested complete backup download':'Requested partial recovery backup; statement history unavailable');
     const backupObj = {
       backupFormatVersion: 4,
       appVersion: '4.0.0',
       exportedAt: new Date().toISOString(),
-      data: allData,
+      statementHistoryComplete:complete,
+      data: snapshot,
     };
     return JSON.stringify(backupObj, null, 2);
   }
@@ -1171,7 +1192,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }
 
   const value: AppContextValue = {
-    statementReady,statementError,importStatement,reviewStatement,postPendingStatements,undoStatementBatch,applyMerchantCategories,reviewCardRow,settleCardRows,undoCardOffset,
+    statementReady,statementError,importStatement,reviewStatement,postPendingStatements,undoStatementBatch,applyMerchantCategories,reviewCardRow,settleCardRows,undoCardOffset,linkTransfer,unlinkTransfer,trackExpenseReimbursement,changeExpenseReimbursement,
     bankCapture,
     saveBankAlerts,updateBankAlert,
     getSyncData:()=>latestData.current,replaceSyncData:async next=>{saveData(next,true);const archived=saveStatementArchive(next.statementRows||[],next.statementBatches||[]);setStoredData(next);await archived;},

@@ -13,3 +13,9 @@
 **Payment method**: How an entry moved money, such as UPI or net banking. Both can use the same savings or current account; users do not need to define those links separately.
 
 **Expense credit**: A separate reimbursement or refund that reduces Revenue Expense in its chosen category on the credit's own date. It is neither income nor recovery of an independently recorded loan.
+
+**Own-account transfer**: Equal outgoing and incoming movements between accounts belonging to the user, including credit-card repayments and wallet funding. Moving this money is neither spending nor income; any fee is a separate expense.
+
+**Reimbursement claim**: An amount expected back against a recorded personal expense. The expected amount can be less than the original expense; separate expense credits reduce what is still outstanding.
+
+**Backup download request**: The browser starting a financial backup download on this device. It does not establish that the file was saved successfully or stored somewhere safe.
