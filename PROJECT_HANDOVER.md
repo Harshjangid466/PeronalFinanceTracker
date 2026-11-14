@@ -93,3 +93,11 @@ All 31 Axis, 8 HDFC, 6 monthly ICICI, 3 SBI and 3 scanned BOB PDFs passed. Scans
 ## GitHub-only synchronization — 9 November 2026
 
 Accounts/review/expense-credit changes and the statement-corpus fixes are synchronized on main using [skip netlify]. This is source backup only, not a production release. The last authorized production release remains bfc5109 (Netlify deployment 6af1da08b9c6c9b67a890cf6). Keep subsequent synchronization commits skipped until Harsh explicitly requests another release. The unrelated local ChatGPT context documents and private test artifacts are excluded.
+
+## Direct PDF sharing — 14 November 2026
+
+Harsh chose sharing PDFs from email/Files into the installed app rather than building Gmail access in this batch. Personal main registers a standard PDF Web Share Target and handles its POST locally in the service worker. A one-use temporary file opens Transactions → Imports & review, waits for account/password and Read PDF, then reuses existing source controls, preview and duplicate detection. Normal file selection still works. See docs/PDF_SHARING.md for installation, bounded staging/expiry, privacy and verification details.
+
+The same manifest declaration is ready for browsers that later add compatible support. Current Safari/iPhone does not offer this incoming share integration; Save to Files remains the fallback. Do not claim physical Android/iPhone validation from desktop tests. No Gmail/capture/sync activation, ledger schema change, beta modification or Netlify deployment is included. Synchronize with [skip netlify] until an explicit release request.
+
+Validation passed: typecheck/build, statement and bank-parser regressions, plain/AES-256 PDF readers including missing stream async iteration, and production mobile/desktop sharing, ordinary statement-import and expense-credit UI suites. The real service worker passed top-level multipart navigation, explicit read/import, password retry, duplicate/manual upload, cancellation/expiry, bounded staging and storage failure, offline handoff, reload/backup retention and cache/referrer exclusions. Final review finding about token referrers was fixed and the browser test extended. Physical device share sheets remain unverified.
