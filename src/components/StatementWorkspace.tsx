@@ -18,6 +18,7 @@ import {HabitSuggestions} from './HabitSuggestions';
 import {readBankPdf} from '@/data/readBankPdf';
 import {StatementReviewSelect} from './StatementReviewSelect';
 import {StatementImportSummary} from './StatementImportSummary';
+import {AccountReconciliation} from './AccountReconciliation';
 import {RemoveStatementImport} from './RemoveStatementImport';
 import {getStatementPassword,saveStatementPassword,forgetStatementPassword} from '@/data/statementPasswords';
 import {cashbackCreditKind} from '@/data/cashback';
@@ -159,6 +160,7 @@ export function StatementWorkspace({active=true,onShowHistory,sharedLaunch}:{act
     <button className="ml-3 text-slate-500 underline" onClick={()=>{setDraft([]);setGrid([]);setBatch(undefined);setSharedFile(undefined);forgetSharedPdf(sharedLaunch?.id);setPassword('');setSelectedName('');setMessage('Selected file discarded. No entries were posted.');}}>Discard selected file</button>
    </div>}
   </div>
+  <AccountReconciliation onReviewBatch={id=>{setBatchFilter(id);setStatus('all');setSearch('');setLimit(50);if(id===batchFilter)summaryRef.current?.scrollIntoView({block:'start'});}}/>
   {selectedBatch&&<div ref={summaryRef}><StatementImportSummary key={selectedBatch.id} batch={selectedBatch} active={active} onEdit={setEditing}/></div>}
   {selectedBatch?.kind==='card'&&<CashbackPanel batch={selectedBatch} batches={data.statementBatches||[]} rows={rows} transactions={data.transactions} onReview={startReview}/>}
   {cardMode&&selectedBatch&&<CardReviewPanel key={cardAccount} batch={selectedBatch} active={active} onReview={startReview}/>}

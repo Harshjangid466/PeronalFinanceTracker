@@ -19,6 +19,8 @@
     "test:alerts": "node scripts/verify-alerts.cjs",
     "test:capture": "node scripts/verify-capture.cjs",
     "test:statements": "node scripts/verify-statements.cjs",
+    "test:account-reconciliation": "node scripts/verify-account-reconciliation.cjs",
+    "test:account-reconciliation-ui": "node scripts/verify-account-reconciliation-ui.mjs",
     "test:bank-pdf": "node scripts/verify-bank-pdf.cjs",
     "test:cashback": "node scripts/verify-cashback.cjs",
     "test:card-reconciliation": "node scripts/verify-card-reconciliation.cjs",
