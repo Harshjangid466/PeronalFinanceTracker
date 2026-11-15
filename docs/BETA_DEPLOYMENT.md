@@ -14,3 +14,7 @@ https://friends--harsh-finance-friends-beta.netlify.app/
 - Reuse the same project ID and alias friends for future draft updates to keep the URL and browser storage origin stable. Do not publish to or alter the personal site when updating the beta.
 
 The personal Settings-only production release was separately authorised and published once to https://harsh-finance-tracker.netlify.app/ (deploy 6addbe76de3f555c86d8651c). That release is separate from the beta.
+
+## Beta.5 GitHub-only update — 15 November 2026
+
+All functional changes accumulated since beta.4 are queued in source: PDF share target, account/month reconciliation, transfers, reimbursement tracking, backup health and custom transaction types/CAPEX categories. Neutral defaults, onboarding, separate local storage and disabled integrations remain. Both typecheck/build and isolated production browser checks pass. No physical-phone verification or Netlify deployment; use [skip netlify]. The hosted beta remains at its previously published version until a separately authorized release.

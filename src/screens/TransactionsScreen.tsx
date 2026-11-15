@@ -1,3 +1,5 @@
+import {configuredTypes,typeOptionValue,configuredType,transactionTypeName,matchesType,categoriesForType} from '@/data/typeCatalog';
+import type {SharedPdfLaunch} from '@/data/sharedPdf';
 import { useState, useMemo, useEffect, lazy, Suspense } from 'react';
 import { useApp } from '@/context/AppContext';
 import { isPersonalExpense, CORE_TRANSACTION_TYPES, normalizeTransactionType } from '@/data/types';
@@ -12,15 +14,16 @@ import {AlertInbox} from '@/components/AlertInbox';
 import {TransactionDetails} from '@/components/TransactionDetails';
 import {DeletedTransactions} from '@/components/DeletedTransactions';
 import {SwipeTransactionRow} from '@/components/SwipeTransactionRow';
+import {ReimbursementTracker} from '@/components/ReimbursementTracker';
 import {entrySource,entrySourceLabels} from '@/data/entryManagement';
 const StatementWorkspace=lazy(()=>import('@/components/StatementWorkspace').then(m=>({default:m.StatementWorkspace})));
 
-export function TransactionsScreen({active=true}:{active?:boolean}) {
+export function TransactionsScreen({active=true,sharedLaunch}:{active?:boolean;sharedLaunch?:SharedPdfLaunch}) {
   const { data,allData, deleteTransaction, deletedTransactions, restoreTransaction,permanentlyDeleteTransaction } = useApp();
   const [visibleCount,setVisibleCount]=useState(100);
   const [showDeleted,setShowDeleted]=useState(false);
-  const [view,setView]=useState<'history'|'imports'>('history');
-  const [importsSeen,setImportsSeen]=useState(false);
+  const [view,setView]=useState<'history'|'imports'>(sharedLaunch?'imports':'history');
+  const [importsSeen,setImportsSeen]=useState(!!sharedLaunch);
   const historyActive=active&&view==='history';
   function switchView(next:'history'|'imports'){if(next==='imports')setImportsSeen(true);setView(next);}
   const [showTools,setShowTools]=useState(false);
@@ -59,7 +62,7 @@ export function TransactionsScreen({active=true}:{active?:boolean}) {
         if (!searchable.includes(q)) return false;
       }
 
-      if (filters.type && normalizeTransactionType(t.type) !== normalizeTransactionType(filters.type)) return false;
+      if (filters.type && !matchesType(t,filters.type)) return false;
       if (filters.majorCategory && t.majorCategory !== filters.majorCategory) return false;
       if (filters.subCategory && t.subCategory !== filters.subCategory) return false;
       if (filters.person && t.person !== filters.person) return false;
@@ -123,8 +126,9 @@ export function TransactionsScreen({active=true}:{active?:boolean}) {
       </div>
 
       <div role="tablist" aria-label="Transaction views" className="flex gap-1 border-b dark:border-slate-700 mb-5 print:hidden">{([['history','Transactions'],['imports','Imports & review']] as const).map(([key,label])=><button key={key} id={`transaction-${key}-tab`} role="tab" tabIndex={view===key?0:-1} onKeyDown={e=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(e.key)){e.preventDefault();const next=e.key==='Home'?'history':e.key==='End'?'imports':view==='history'?'imports':'history';switchView(next);document.getElementById(`transaction-${next}-tab`)?.focus();}}} aria-selected={view===key} aria-controls={`transaction-${key}-panel`} onClick={()=>switchView(key)} className={`px-4 py-3 text-sm border-b-2 ${view===key?'border-cyan-600 text-cyan-600 font-semibold':'border-transparent text-slate-500'}`}>{label}</button>)}</div>
-      <div id="transaction-imports-panel" role="tabpanel" aria-labelledby="transaction-imports-tab" hidden={view!=='imports'}>{importsSeen&&<Suspense fallback={<p>Opening statement review…</p>}><StatementWorkspace active={active&&view==='imports'} onShowHistory={()=>switchView('history')}/></Suspense>}</div>
+      <div id="transaction-imports-panel" role="tabpanel" aria-labelledby="transaction-imports-tab" hidden={view!=='imports'}>{importsSeen&&<Suspense fallback={<p>Opening statement review…</p>}><StatementWorkspace sharedLaunch={sharedLaunch} active={active&&view==='imports'} onShowHistory={()=>switchView('history')}/></Suspense>}</div>
       <div id="transaction-history-panel" role="tabpanel" aria-labelledby="transaction-history-tab" hidden={view!=='history'} className="max-w-3xl mx-auto">
+      <ReimbursementTracker active={historyActive}/>
       {/* Universal Search (Section Q & AB) */}
       <div className="flex gap-2 mb-3 print:hidden">
         <div className="relative flex-1">
@@ -210,7 +214,7 @@ export function TransactionsScreen({active=true}:{active?:boolean}) {
             <SwipeTransactionRow onEdit={()=>setEditingTransaction(t)} onDelete={()=>setDeleteConfirmId(t.id)}>
             <button aria-describedby="transaction-swipe-hint" onClick={()=>setSelected(t)} className="w-full text-left flex items-center justify-between gap-3 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 p-3 hover:bg-slate-50 dark:hover:bg-slate-800">
               <div className="min-w-0"><p className="font-semibold text-sm truncate text-slate-900 dark:text-slate-100">{t.heading||t.person||t.majorCategory||t.type}</p><p className="text-xs text-slate-500 truncate">{[t.majorCategory,t.subCategory,t.account].filter(Boolean).join(' · ')}</p></div>
-              <div className="shrink-0 text-right"><p className={credit?'font-bold text-emerald-600':'font-bold text-slate-900 dark:text-slate-100'}>{credit?'+':'−'}{formatCurrency(Math.abs(t.amount))}</p><p className="text-[10px] text-slate-500">{t.type==='Revenue Expense'&&t.amountMinor<0?'Expense credit':t.type}</p></div>
+              <div className="shrink-0 text-right"><p className={credit?'font-bold text-emerald-600':'font-bold text-slate-900 dark:text-slate-100'}>{credit?'+':'−'}{formatCurrency(Math.abs(t.amount))}</p><p className="text-[10px] text-slate-500">{t.type==='Revenue Expense'&&t.amountMinor<0?'Expense credit':transactionTypeName(data,t)}</p></div>
             </button>
             </SwipeTransactionRow>
           </div>;
@@ -232,9 +236,9 @@ export function TransactionsScreen({active=true}:{active?:boolean}) {
               className="w-full px-3 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 outline-none text-sm"
             >
               <option value="">All Types</option>
-              {CORE_TRANSACTION_TYPES.map((t) => (
-                <option key={t} value={t}>
-                  {t}
+              {configuredTypes(data,true).map((t) => (
+                <option key={t.id} value={typeOptionValue(t)}>
+                  {t.name}
                 </option>
               ))}
             </select>
@@ -250,7 +254,7 @@ export function TransactionsScreen({active=true}:{active?:boolean}) {
               className="w-full px-3 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 outline-none text-sm"
             >
               <option value="">All Categories</option>
-              {data.categories.map((c) => (
+              {(filters.type?categoriesForType(data,configuredType(data,filters.type)?.baseType,configuredType(data,filters.type)?.id):[...new Map(data.masters?.filter(m=>m.active&&(m.kind==='category'||m.kind==='typeCategory')).map(m=>[m.name,{name:m.name}])).values()]).map((c) => (
                 <option key={c.name} value={c.name}>
                   {c.name}
                 </option>

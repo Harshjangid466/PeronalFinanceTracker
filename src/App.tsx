@@ -1,3 +1,4 @@
+import {sharedPdfLaunch} from '@/data/sharedPdf';
 import { useState, useEffect, useRef } from 'react';
 import { AppProvider } from '@/context/AppContext';
 import { BottomNav, type TabId } from '@/components/BottomNav';
@@ -19,8 +20,8 @@ function AppContent() {
   const [welcomed,setWelcomed]=useState(()=>readProfile().welcomed);
   const [tourOpen,setTourOpen]=useState(()=>readProfile().welcomed&&!readProfile().tourSeen);
   const [setupStart,setSetupStart]=useState(0);
-  const [tab, setTab] = useState<View>('home');
-  const [transactionsSeen,setTransactionsSeen]=useState(false);
+  const [tab, setTab] = useState<View>(sharedPdfLaunch?'transactions':'home');
+  const [transactionsSeen,setTransactionsSeen]=useState(!!sharedPdfLaunch);
 
   const currentView=useRef<View>(tab);currentView.current=tab;
   function navigate(view: View) {
@@ -33,7 +34,7 @@ function AppContent() {
 
   useEffect(()=>{
     // Allow the bank-capture sign-in callback to be consumed before cleaning the URL.
-    if(!window.location.hash.includes('access_token=')&&!new URLSearchParams(window.location.search).has('code'))window.history.replaceState({financeView:'home'},'',window.location.pathname);
+    if(!window.location.hash.includes('access_token=')&&!new URLSearchParams(window.location.search).has('code'))window.history.replaceState({financeView:sharedPdfLaunch?'transactions':'home'},'',window.location.pathname);
     const back=()=>{if(modalStack.length)return;const previous=window.history.state?.financeView||'home';if(hasUnsavedChanges())window.history.pushState({financeView:currentView.current},'',`#${currentView.current}`);requestNavigation(()=>{window.history.replaceState({financeView:previous},'',`#${previous}`);setTab(previous);});};
     const escape=(e:KeyboardEvent)=>{if(e.key==='Escape'&&!modalStack.length)requestNavigation(()=>{setTab('home');});};
     window.addEventListener('popstate',back);window.addEventListener('keydown',escape);
@@ -43,7 +44,7 @@ function AppContent() {
   useEffect(()=>{const tour=()=>requestNavigation(()=>{setTab('home');setTourOpen(true);});window.addEventListener('beta-open-tour',tour);return()=>window.removeEventListener('beta-open-tour',tour);},[]);
   const isRecurring = tab === 'recurring';
 
-  if(!welcomed)return <><NavigationGuard/><BetaWelcome startStep={setupStart} onDone={()=>{setTab('home');setWelcomed(true);setTourOpen(!readProfile().tourSeen);}}/></>;
+  if(!welcomed)return <><NavigationGuard/><BetaWelcome startStep={setupStart} onDone={()=>{setTab(sharedPdfLaunch?'transactions':'home');setWelcomed(true);setTourOpen(!readProfile().tourSeen);}}/></>;
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
       <NavigationGuard />
@@ -68,7 +69,7 @@ function AppContent() {
         </>
       )}
 
-      {transactionsSeen&&<div hidden={tab!=='transactions'}><TransactionsScreen active={tab==='transactions'}/></div>}
+      {transactionsSeen&&<div hidden={tab!=='transactions'}><TransactionsScreen active={tab==='transactions'} sharedLaunch={sharedPdfLaunch}/></div>}
       {tourOpen&&<IconTour onClose={()=>setTourOpen(false)}/>}
       <BottomNav active={isRecurring||tab==='feedback' ? 'home' : tab} onChange={(t) => navigate(t)} />
     </div>

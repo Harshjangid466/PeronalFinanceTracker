@@ -1,9 +1,11 @@
 import {countUsage} from '@/beta/localBeta';
 import {mapTypedAccount} from '@/data/accountTypes';
-
+import {builtinTypeId,fieldReferencesMaster,recordTypeId} from '@/data/typeCatalog';
+import {applyTransfer,undoTransfer,transferLocks} from '@/data/transferLinks';
+import {trackReimbursement,changeReimbursement} from '@/data/reimbursements';
 import {applyCategoryProposals,type CategoryProposal} from '@/data/merchantCategories';
 import {nextRecurringDate,processRecurringDue,recurringIsDue} from '@/data/recurring';
-import { createContext, useContext, useEffect, useState, useMemo, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, useMemo, useRef, type ReactNode } from 'react';
 import type {
   AppData,
   Transaction,
@@ -112,6 +114,10 @@ interface AppContextValue {
   removeStatementImport:(id:string,deletePosted:boolean)=>void;
   permanentlyDeleteTransaction:(id:string)=>void;
   configure: (updates:Partial<AppData>)=>void;
+  linkTransfer:(ids:string[],reason:string,confirmed:boolean)=>void;
+  unlinkTransfer:(id:string)=>void;
+  trackExpenseReimbursement:(expenseId:string,person:string,expectedMinor:number)=>void;
+  changeExpenseReimbursement:(id:string,action:'credit'|'unlink'|'cancel'|'expected',value:string|number)=>void;
   logAction: (action:string, entity:string, description:string)=>void;
   manageMaster: (item:MasterItem)=>void;
   removeMaster: (id:string)=>void;
@@ -196,7 +202,12 @@ export function useApp(): AppContextValue {
 }
 
 export function AppProvider({ children }: { children: ReactNode }) {
-  const [allData, setStoredData] = useState<AppData>(() => loadData());
+  const [allData, storeData] = useState<AppData>(() => loadData());
+  const latestData=useRef(allData);
+  function setStoredData(update:AppData|((prev:AppData)=>AppData)) {
+    const next=typeof update==='function'?update(latestData.current):update;
+    latestData.current=next;storeData(next);
+  }
   const [statementReady,setStatementReady]=useState(false);
   const [statementError,setStatementError]=useState('');
   useEffect(()=>{let cancelled=false;loadStatementArchive().then(archive=>{if(cancelled)return;setStoredData(prev=>migrateData(applyRemovalTombstones({...prev,statementRows:mergeStatementRows(archive.rows,prev.statementRows||[]),statementBatches:[...new Map([...archive.batches,...(prev.statementBatches||[])].map(b=>[b.id,b])).values()]})));setStatementReady(true);}).catch(()=>{if(!cancelled)setStatementError('Statement history could not be opened. Import is disabled; existing financial entries are retained.');});return()=>{cancelled=true;};},[]);
@@ -214,8 +225,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setData(prev=>{const next=applyCategoryProposals(prev,proposals,now);return {...next,actionLog:[...next.actionLog,{id:uid(),timestamp:now,actionType:'categorise',entityType:'transactions',entityId:proposals.map(p=>p.id).join(','),description:`Applied reviewed merchant categories to ${proposals.length} entries; amounts unchanged`}]};});
   }
   function configure(updates:Partial<AppData>) { setData(prev=>({...prev,...updates})); }
+  function linkTransfer(ids:string[],reason:string,confirmed:boolean){
+    if(!statementReady||statementError)throw Error('Statement history is not ready.');
+    const options={id:uid(),now:Date.now(),reason,confirmed};applyTransfer(allData,ids,options);setData(prev=>applyTransfer(prev,ids,options));
+  }
+  function unlinkTransfer(id:string){if(!statementReady||statementError)throw Error('Statement history is not ready.');const now=Date.now();undoTransfer(allData,id,now);setData(prev=>undoTransfer(prev,id,now));}
+  function trackExpenseReimbursement(expenseId:string,person:string,expectedMinor:number){const id=uid(),now=Date.now();trackReimbursement(allData,expenseId,person,expectedMinor,id,now);setData(prev=>trackReimbursement(prev,expenseId,person,expectedMinor,id,now));}
+  function changeExpenseReimbursement(id:string,action:'credit'|'unlink'|'cancel'|'expected',value:string|number){const now=Date.now();changeReimbursement(latestData.current,id,action,value,now);setData(prev=>changeReimbursement(prev,id,action,value,now));}
   function reviewCardRow(id:string,kind?:CardKind,hold?:boolean,reason='Awaiting refund / next statement'){
     if(!statementReady||statementError)throw Error('Statement history is not ready.');
+    if(allData.statementRows?.find(r=>r.id===id)?.transferLinkId)throw Error('Undo the transfer link before changing its source movement.');
     const update=(prev:AppData)=>{const row=prev.statementRows?.find(r=>r.id===id);if(!row||!isCardRow(row,prev.statementBatches||[])||row.cardSettlementId)throw Error('Choose an available credit-card movement.');if(kind&&(!Object.prototype.hasOwnProperty.call({purchase:1,payment:1,cashback:1,refund:1,fee:1,other:1},kind)))throw Error('Choose a valid card movement type.');if(kind&&((['payment','refund'].includes(kind)&&row.direction!=='credit')||(['purchase','fee'].includes(kind)&&row.direction!=='debit')))throw Error('Movement type does not agree with debit/credit direction.');return {...prev,statementRows:prev.statementRows!.map(r=>r.id===id?{...r,...(kind?{cardKind:kind}:{}),...(hold===undefined?{}:{cardHold:hold?{reason:reason.trim()||'Awaiting refund / next statement',createdAt:Date.now()}:undefined})}:r),actionLog:[...prev.actionLog,{id:uid(),timestamp:Date.now(),actionType:'review',entityType:'statement',entityId:id,description:kind?`Card movement classified: ${kind}`:hold?'Card movement held for later reconciliation':'Card movement released from hold'}]};};update(allData);setData(update);
   }
   function settleCardRows(ids:string[],details:CardOffsetDetails){
@@ -226,12 +245,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   function undoCardOffset(id:string){if(!statementReady||statementError)throw Error('Statement history is not ready.');const now=Date.now();undoOffset(allData,id,now);setData(prev=>{if(prev.cardSettlements?.find(g=>g.id===id)?.status==='undone')return prev;const next=undoOffset(prev,id,now);return {...next,actionLog:[...next.actionLog,{id:uid(),timestamp:now,actionType:'undo',entityType:'cardSettlements',entityId:id,description:'Undid card offset; restored original entries and source review states'}]};});}
   function statementTransaction(row:StatementRow,details:Partial<Transaction>,batch?:StatementBatch):Transaction{
     const type=details.type||'Revenue Expense',now=Date.now(),signedMinor=type==='Revenue Expense'&&row.direction==='credit'?-row.amountMinor:row.amountMinor;
-    return {id:`statement:${encodeURIComponent(row.id)}`,entrySource:statementEntrySource(row,batch||allData.statementBatches?.find(b=>b.id===row.batchId)),schemaVersion:4,type,amount:signedMinor/100,amountMinor:signedMinor,currency:'INR',date:row.date,createdAt:now,updatedAt:now,majorCategory:details.majorCategory||'',subCategory:details.subCategory||'',paymentMode:details.paymentMode||'UPI',account:row.account,person:details.person||'',heading:details.heading||row.vendor,remarks:details.remarks??row.note,customFields:details.customFields||{},financialEffect:financialEffect(type,signedMinor),status:'active',purchasedFrom:details.purchasedFrom||'',paymentFor:details.paymentFor||'',incomeType:details.incomeType||'',investmentType:details.investmentType||'',statementReferences:row.reference?[row.reference]:[]};
-
+    return {id:`statement:${encodeURIComponent(row.id)}`,entrySource:statementEntrySource(row,batch||allData.statementBatches?.find(b=>b.id===row.batchId)),schemaVersion:4,type,transactionTypeId:details.transactionTypeId,amount:signedMinor/100,amountMinor:signedMinor,currency:'INR',date:row.date,createdAt:now,updatedAt:now,majorCategory:details.majorCategory||'',subCategory:details.subCategory||'',paymentMode:details.paymentMode||'UPI',account:row.account,person:details.person||'',heading:details.heading||row.vendor,remarks:details.remarks??row.note,customFields:details.customFields||{},financialEffect:financialEffect(type,signedMinor),status:'active',purchasedFrom:details.purchasedFrom||'',paymentFor:details.paymentFor||'',incomeType:details.incomeType||'',investmentType:details.investmentType||'',statementReferences:row.reference?[row.reference]:[]};
   }
   function undoStatementBatch(id:string){setData(prev=>{const batch=prev.statementBatches?.find(b=>b.id===id);if(!batch)return prev;const ids=new Set(batchUndoCandidates(batch,prev.statementRows||[],prev.transactions));return {...prev,transactions:prev.transactions.map(t=>ids.has(t.id)?{...t,status:'deleted',deletedVia:'import-undo',deletedAt:Date.now(),updatedAt:Date.now()}:t),actionLog:[...prev.actionLog,{id:uid(),timestamp:Date.now(),actionType:'undo',entityType:'statement',entityId:id,description:`Undid ${ids.size} untouched auto-posted entries; retained import review history`}]};});}
   function ensureStatementCategory(prev:AppData,t:Transaction){
-    if(!t.majorCategory)return prev.categories;
+    if(!t.majorCategory||recordTypeId(t as unknown as Record<string,unknown>)!==builtinTypeId('Revenue Expense'))return prev.categories;
     const found=prev.categories.find(c=>c.name===t.majorCategory);
     return found?prev.categories.map(c=>c.name===t.majorCategory&&t.subCategory&&!c.subCategories.includes(t.subCategory)?{...c,subCategories:[...c.subCategories,t.subCategory]}:c):[...prev.categories,{name:t.majorCategory,subCategories:t.subCategory?[t.subCategory]:[]}];
   }
@@ -273,6 +291,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   function reviewStatement(id:string,action:'ignore'|'reopen'|'match'|'post',details:Partial<Transaction>={},reason=''){
     const savedRow=allData.statementRows?.find(r=>r.id===id);if(!savedRow)throw Error('Statement row not found.');
     if(savedRow.cardSettlementId)throw Error('Undo this card offset before reopening or posting its source movements.');
+    if(savedRow.transferLinkId)throw Error('Undo the transfer link before reopening or posting its source movements.');
     if(isCardRow(savedRow,allData.statementBatches||[])&&cardKind(savedRow)==='payment'&&['post','match'].includes(action))throw Error('A bill payment settles the card balance. Confirm it without posting spending or income.');
     if(savedRow.cardHold&&action==='post')throw Error('Release this movement from hold before posting it.');
     const current={...savedRow,account:details.account||savedRow.account};
@@ -317,7 +336,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     countUsage('action',action);
     setStoredData(prev=>({...prev,actionLog:[...prev.actionLog,{id:uid(),timestamp:Date.now(),actionType:action,entityType:entity,entityId:entity,description}]}));
   }
-  function restoreTransaction(id:string) {const blocked=cardOffsetRestoreBlock(allData,id);if(blocked)throw Error(blocked);setData(prev=>{const blocked=cardOffsetRestoreBlock(prev,id);if(blocked)throw Error(blocked);return {...prev,transactions:prev.transactions.map(t=>t.id===id?{...t,status:'active',deletedAt:undefined,deletedVia:undefined,updatedAt:Date.now()}:t)};}); }
+  function restoreTransaction(id:string) {if(transferLocks(allData,id))throw Error('Undo the transfer link to restore its original entries together.');const blocked=cardOffsetRestoreBlock(allData,id);if(blocked)throw Error(blocked);setData(prev=>{const blocked=cardOffsetRestoreBlock(prev,id);if(blocked||transferLocks(prev,id))throw Error(blocked||'Undo the transfer link first.');return {...prev,transactions:prev.transactions.map(t=>t.id===id?{...t,status:'active',deletedAt:undefined,deletedVia:undefined,updatedAt:Date.now()}:t)};}); }
   function removeImport(id:string,deletePosted:boolean){if(!statementReady||statementError)throw Error('Statement history is not ready.');setData(prev=>removeStatementImport(prev,id,deletePosted));}
   function permanentlyDeleteTransaction(id:string){permanentlyDeleteEntry(allData,id);setData(prev=>prev.transactions.some(t=>t.id===id&&t.status==='deleted')?permanentlyDeleteEntry(prev,id):prev);}
   function manageMaster(item:MasterItem) {
@@ -336,11 +355,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       const refresh=(record:Record<string,unknown>)=>{
         const copy={...record};
-        for(const [field,kind] of Object.entries(masterFields))if(kind===item.kind && (copy[idFields[field]]===item.id || existing && copy[field]===existing.name)) {copy[field]=item.name; copy[idFields[field]]=item.id;}
+        for(const [field,kind] of Object.entries(masterFields))if(fieldReferencesMaster(copy,field,existing||item,kind,idFields[field])) {copy[field]=item.name; copy[idFields[field]]=item.id;}
         return copy;
       };
       for(const key of ['transactions','recurring','frequentTransactions','quickExpenses','receivables','repayments'] as const) (next as unknown as Record<string,unknown>)[key]=next[key].map(r=>refresh(r as unknown as Record<string,unknown>));
       if(existing&&item.kind==='source')next.statementRows=next.statementRows?.map(r=>r.account===existing.name?{...r,account:item.name}:r);
+      if(existing)next.transferLinks=next.transferLinks?.map(g=>({...g,originalRows:g.originalRows.map(r=>item.kind==='source'&&r.account===existing.name?{...r,account:item.name}:r),previousTransactions:g.previousTransactions.map(t=>refresh(t as unknown as Record<string,unknown>) as unknown as Transaction)}));
       if(existing&&item.kind==='category'&&next.importHabits)next.importHabits={...next.importHabits,vendors:next.importHabits.vendors.map(v=>v.category===existing.name?{...v,category:item.name}:v),narrations:next.importHabits.narrations.map(n=>n.category===existing.name?{...n,category:item.name}:n)};
       next.rules=next.rules.map(r=>({...r,enabled:!item.active && [...r.conditions,...r.actions].some(c=>c.valueId===item.id)?false:r.enabled,conditions:r.conditions.map(c=>c.valueId===item.id?{...c,value:item.name}:c),actions:r.actions.map(c=>c.valueId===item.id?{...c,value:item.name}:c)}));
       return next;
@@ -348,6 +368,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }
   function removeMaster(id:string) {
     const item=allData.masters?.find(m=>m.id===id); if(!item)return;
+    if(item.kind==='transactionType'&&item.id===builtinTypeId(item.baseType||''))throw Error('Built-in transaction types can be deactivated, not permanently deleted.');
     const refs=dependencies(allData,item);
     if(refs.transactions || refs.rules.length || refs.recurring || refs.mappings.length || refs.templates || refs.children)throw new Error('This value is referenced. Deactivate or resolve dependencies first.');
     setData(prev=>projectMasters({...prev,masters:prev.masters?.filter(m=>m.id!==id)}));
@@ -380,9 +401,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const effects = financialEffect(normType, amountMinor);
 
     const txn: Transaction = {
-      id: uid(),
+      id: `recurring:${encodeURIComponent(id)}:${r.nextDueDate}`,
       schemaVersion: 2,
       type: normType,
+      transactionTypeId:r.transactionTypeId,
       heading: r.description,
       amount,
       amountMinor,
@@ -435,6 +457,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       id: uid(),
       schemaVersion: 2,
       type: normType,
+      transactionTypeId:t.transactionTypeId,
       heading: t.heading || '',
       entrySource:t.entrySource||{kind:'manual'},
       amount,
@@ -485,6 +508,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }
 
   function updateTransaction(id: string, updates: Partial<Transaction>): Transaction | null {
+    if(transferLocks(allData,id))throw Error('Undo the transfer link before editing an excluded entry.');
     const current=allData.transactions.find(t=>t.id===id);if(!current)return null;
     const merged={...current,...updates,updatedAt:Date.now()};
     for(const field of Object.keys(masterFields))if(field in updates)delete (merged as unknown as Record<string,unknown>)[idFields[field]];
@@ -494,6 +518,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }
 
   function deleteTransaction(id: string) {
+    if(transferLocks(allData,id))throw Error('Undo the transfer link before changing an excluded entry.');
     setData((prev) => ({
       ...prev,
       transactions: prev.transactions.map((t) => t.id === id ? {...t,status:'deleted',deletedVia:'individual',deletedAt:Date.now(),updatedAt:Date.now()} : t),
@@ -764,6 +789,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const alreadySaved = data.frequentTransactions.some(
           (f) =>
             f.type === sample.type &&
+            recordTypeId(f as unknown as Record<string,unknown>)===recordTypeId(sample as unknown as Record<string,unknown>) &&
             f.majorCategory === sample.majorCategory &&
             f.subCategory === sample.subCategory &&
             f.amount === sample.amount &&
@@ -779,6 +805,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           candidates.push({
             label,
             type: sample.type,
+            transactionTypeId:sample.transactionTypeId,
             amount: sample.amount,
             majorCategory: sample.majorCategory,
             subCategory: sample.subCategory,
@@ -1021,12 +1048,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // Backup & Restore (Section V)
   function exportBackup(): string {
-    logAction('backup','backup','Downloaded complete backup');
+    if(!statementReady&&!statementError)throw Error('Wait for statement history to finish opening before downloading a backup.');
+    const complete=statementReady&&!statementError,snapshot=latestData.current;
+    logAction('backup','backup',complete?'Requested complete backup download':'Requested partial recovery backup; statement history unavailable');
     const backupObj = {
       backupFormatVersion: 4,
       appVersion: '4.0.0',
       exportedAt: new Date().toISOString(),
-      data: allData,
+      statementHistoryComplete:complete,
+      data: snapshot,
     };
     return JSON.stringify(backupObj, null, 2);
   }
@@ -1169,7 +1199,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }
 
   const value: AppContextValue = {
-    statementReady,statementError,importStatement,reviewStatement,postPendingStatements,undoStatementBatch,applyMerchantCategories,reviewCardRow,settleCardRows,undoCardOffset,
+    statementReady,statementError,importStatement,reviewStatement,postPendingStatements,undoStatementBatch,applyMerchantCategories,reviewCardRow,settleCardRows,undoCardOffset,linkTransfer,unlinkTransfer,trackExpenseReimbursement,changeExpenseReimbursement,
     bankCapture,
     saveBankAlerts,updateBankAlert,
     data, allData, deletedTransactions:allData.transactions.filter(t=>t.status==='deleted'),restoreTransaction,removeStatementImport:removeImport,permanentlyDeleteTransaction,configure,logAction,manageMaster,removeMaster,importTransactions,

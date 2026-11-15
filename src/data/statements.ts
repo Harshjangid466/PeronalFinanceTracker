@@ -1,5 +1,6 @@
 import {suggestMerchantCategory,statementCategorySuggestion} from './merchantCategories';
 import type {AppData, Transaction, TransactionType} from './types';
+import {linkedTransfer} from './transferIdentity';
 
 export interface VendorHabit {id:string;vendor:string;enabled:boolean;action:'post'|'ignore'|'review';category:string;subcategory:string;type:TransactionType;maxAmountMinor?:number;prefix?:boolean;}
 export interface NarrationHabit {id:string;terms:string[];enabled:boolean;action:'post'|'ignore'|'review';category:string;subcategory:string;}
@@ -8,6 +9,7 @@ export interface ImportHabits {version:1;vendors:VendorHabit[];narrations:Narrat
 export interface StatementRow {id:string;batchId:string;source:'paytm'|'bank';date:string;valueDate?:string;time?:string;vendor:string;note:string;account:string;reference:string;amountMinor:number;direction:'debit'|'credit'|'self'|'blocked'|'unblocked';status:'pending'|'posted'|'matched'|'ignored';transactionId?:string;reason?:string;baselineAmountMinor?:number;sourceRow?:number;sourcePage?:number;originalAccount?:string;originalDate?:string;paymentMode?:string;}
 export interface StatementRow {cashbackEarnedMinor?:number;cashbackCredit?:'cycle'|'rebate';}
 export interface StatementRow {cardKind?:import('./cardReconciliation').CardKind;cardHold?:{reason:string;createdAt:number};cardSettlementId?:string;}
+export interface StatementRow {transferLinkId?:string;}
 export interface CashbackSummary {account:string;earnedMinor?:number;creditedMinor?:number;}
 export interface StatementBatch {id:string;source:'paytm'|'bank';name:string;createdAt:number;from:string;to:string;count:number;rowIds?:string[];openingMinor?:number;closingMinor?:number;kind?:'bank'|'card'|'pluxee';sourceFormat?:string;sourceWarning?:string;cashback?:CashbackSummary;}
 export interface Classification {action:'post'|'ignore'|'review';category:string;subcategory:string;type:TransactionType;reason:string;}
@@ -57,13 +59,14 @@ export function candidates(row:StatementRow,txns:Transaction[],reserved:Set<stri
  return txns.filter(t=>t.status==='active'&&!reserved.has(t.id)&&t.account===row.account&&directionOf(t)===row.direction&&Math.abs(t.amountMinor)===row.amountMinor&&t.date===row.date);
 }
 export function rowState(row:StatementRow,txns:Transaction[]):StatementRow{
- if(row.cardSettlementId)return {...row,status:'ignored'};
+ if(row.cardSettlementId||row.transferLinkId)return {...row,status:'ignored'};
  if(!row.transactionId)return row;
  const t=txns.find(t=>t.id===row.transactionId);
  if(!t||t.status!=='active'||t.date!==row.date||t.account!==row.account||Math.abs(t.amountMinor)!==row.amountMinor||directionOf(t)!==row.direction)return {...row,status:'pending',reason:'Linked entry changed or was deleted; review again'};
  return row;
 }
 export function saveStatementPosting(txns:Transaction[],row:StatementRow,proposed:Transaction):{transactions:Transaction[];saved:Transaction}{
+ if(row.transferLinkId)throw Error('Undo the transfer link before posting this movement.');
  if(row.direction==='blocked'||row.direction==='unblocked')throw Error('Funds blocked/unblocked are non-payment events and cannot be posted.');
  const linked=txns.find(t=>t.id===row.transactionId&&t.status==='active');
  if(txns.some(t=>t.status==='active'&&t.id!==linked?.id&&row.reference&&t.account===row.account&&t.statementReferences?.includes(row.reference)))throw Error('An entry with this payment reference already exists. Match or edit that entry.');
@@ -113,6 +116,7 @@ export function mergeStatementRows(old:StatementRow[],incoming:StatementRow[]):S
  return [...map.values()];
 }
 export function validateStatementRows(value:unknown):asserts value is StatementRow[]{
+ if(Array.isArray(value))for(const r of value)if(r?.transferLinkId!==undefined&&(typeof r.transferLinkId!=='string'||!r.transferLinkId))throw Error('Invalid transfer source link');
  if(!Array.isArray(value))throw Error('Invalid statement history');const ids=new Set<string>();
  for(const r of value){if(r?.cardKind!==undefined&&!['purchase','payment','cashback','refund','fee','other'].includes(r.cardKind)||r?.cardHold!==undefined&&(!r.cardHold||typeof r.cardHold.reason!=='string'||!Number.isFinite(r.cardHold.createdAt))||r?.cardSettlementId!==undefined&&(typeof r.cardSettlementId!=='string'||!r.cardSettlementId))throw Error('Invalid card review metadata');}
  for(const r of value){if(['blocked','unblocked'].includes(r?.direction)&&(r.source!=='paytm'||r.transactionId||!['pending','ignored'].includes(r.status)))throw Error('Invalid non-payment event');}
@@ -139,6 +143,7 @@ export function classifyImport(rows:StatementRow[],data:AppData,habits:ImportHab
  const known=data.statementRows||[];const reserved=new Set(known.filter(r=>r.source===rows[0]?.source&&r.transactionId&&rowState(r,data.transactions).status!=='pending').map(r=>r.transactionId!));
  return rows.map(incoming=>{
   const saved=known.find(r=>r.id===incoming.id);const row=saved?rowState(saved,data.transactions):incoming;
+  if(linkedTransfer(data,row))return {row,classification:{action:'ignore' as const,category:'',subcategory:'',type:'Revenue Expense' as const,reason:'Previously confirmed own-account transfer'},matches:[],existing:!!saved,exactReference:false};
   if(saved&&(!recheckPending||row.status!=='pending'||row.transactionId))return {row,classification:classify(row,habits,known),matches:[],existing:true};
   if(row.direction==='blocked'||row.direction==='unblocked')return {row,classification:classify(row,habits,known),matches:[],existing:false,exactReference:false};
   const references=data.transactions.filter(t=>t.status==='active'&&t.statementReferences?.includes(row.reference)&&row.reference&&t.account===row.account&&t.date===row.date&&Math.abs(t.amountMinor)===row.amountMinor&&directionOf(t)===row.direction);

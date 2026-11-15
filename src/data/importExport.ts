@@ -1,5 +1,6 @@
 import {visibleField} from './model';
 import {CORE_TRANSACTION_TYPES,type Transaction,type AppData} from './types';
+import {configuredType,recordTypeId} from './typeCatalog';
 export const commonHeaders=['Date','Amount','Transaction Type','Heading','Major Category','Sub-category','Payment Mode','Source','Person','Remarks'];
 export function parseCSV(text:string):string[][] {
   const rows:string[][]=[];let row:string[]=[];let cell='';let quoted=false;
@@ -16,6 +17,10 @@ export function previewImport(rows:string[][],data:AppData):ImportPreview[]{if(!
     headers.forEach((h,i)=>{if(fields[h])record[fields[h]]=String(row[i]??'').trim();else {const cf=data.customFields.find(f=>h===f.label || h===f.key || h===`Custom: ${f.label}`);if(cf)(record.customFields as Record<string,unknown>)[cf.key]=row[i]??'';}});
     record.type ||= 'Revenue Expense'; record.amount=Number(String(record.amount||'').replace(/[₹,]/g,''));
     const t=record as Partial<Transaction>; const errors:string[]=[];const warnings:string[]=[];
+    const idIndex=headers.indexOf('Transaction Type ID'),nameIndex=headers.indexOf('Configured Type');
+    const suppliedId=idIndex>=0?String(row[idIndex]||'').trim():'',suppliedName=nameIndex>=0?String(row[nameIndex]||'').trim():'';
+    if(suppliedId||suppliedName){const definition=configuredType(data,suppliedId)||configuredType(data,suppliedName);if(!definition)errors.push('Set up the configured transaction type in Settings before importing.');else if(definition.baseType!==t.type)errors.push('Configured type and financial behaviour disagree.');else t.transactionTypeId=definition.id;}
+    else if(!CORE_TRANSACTION_TYPES.includes(t.type!)){const definition=configuredType(data,String(t.type));if(definition){t.type=definition.baseType;t.transactionTypeId=definition.id;}}
     const date=String(t.date||'');if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||Number.isNaN(Date.parse(date))||new Date(date).toISOString().slice(0,10)!==date)errors.push('Date must be a real YYYY-MM-DD date.');
     if(!Number.isFinite(t.amount)||!t.amount||(t.amount<0&&t.type!=='Revenue Expense')||!Number.isSafeInteger(Math.round(t.amount*100)))errors.push('Amount must be nonzero; only revenue expense credits may be negative.');
     if(t.amount!==undefined && Math.abs(t.amount*100-Math.round(t.amount*100))>1e-6)errors.push('Amount must have at most two decimal places.');
@@ -33,8 +38,8 @@ export function previewImport(rows:string[][],data:AppData):ImportPreview[]{if(!
     for(const cf of applicable){if(!visibleField(cf,applicable,custom))continue;const value=custom[cf.key];if(cf.required&&(value===undefined||value===''||Array.isArray(value)&&!value.length))errors.push(`${cf.label} is required.`);if(['dropdown','multiSelect'].includes(cf.type)&&value!==undefined&&value!==''){const selected=Array.isArray(value)?value:[value];if(selected.some(v=>!cf.options?.includes(String(v))))errors.push(`${cf.label} contains an unknown option.`);}}
     t.customFields=custom;
     if(t.account&&!data.accounts.includes(t.account))warnings.push('New source: review in Settings after import.');if(t.paymentMode&&!data.paymentModes.includes(t.paymentMode))warnings.push('New payment mode.');
-    const key=JSON.stringify([t.date,t.type,t.amount,t.majorCategory||'',t.person||'',t.remarks||'']);
-    const duplicate=seen.has(key)||data.transactions.some(old=>JSON.stringify([old.date,old.type,old.amount,old.majorCategory||'',old.person||'',old.remarks||''])===key);seen.add(key);
+    const key=JSON.stringify([t.date,recordTypeId(t as Record<string,unknown>),t.amount,t.majorCategory||'',t.person||'',t.remarks||'']);
+    const duplicate=seen.has(key)||data.transactions.some(old=>JSON.stringify([old.date,recordTypeId(old as unknown as Record<string,unknown>),old.amount,old.majorCategory||'',old.person||'',old.remarks||''])===key);seen.add(key);
     return {row:index+2,transaction:t,errors,warnings,duplicate};
   });
 }

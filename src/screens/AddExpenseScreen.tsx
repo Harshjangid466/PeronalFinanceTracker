@@ -60,6 +60,7 @@ export function AddExpenseScreen() {
           key={selectedFrequent ? selectedFrequent.id : 'default-form'}
           initialType={selectedFrequent ? selectedFrequent.type : 'Revenue Expense'}
           prefill={selectedFrequent ? {
+            transactionTypeId:selectedFrequent.transactionTypeId,
             amount: selectedFrequent.amount,
             majorCategory: selectedFrequent.majorCategory,
             subCategory: selectedFrequent.subCategory,

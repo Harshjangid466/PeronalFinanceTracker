@@ -22,7 +22,7 @@ export function cardKind(row:StatementRow):CardKind{
  if(/\b(?:interest|finance charge|late fee|annual fee|joining fee|surcharge|gst|service tax)\b/i.test(note))return 'fee';
  return 'purchase';
 }
-export function cardRowAvailable(row:StatementRow){return !row.cardSettlementId&&row.status!=='ignored';}
+export function cardRowAvailable(row:StatementRow){return !row.cardSettlementId&&!row.transferLinkId&&row.status!=='ignored';}
 export function cardOffsetCandidates(row:StatementRow,rows:StatementRow[],batches:StatementBatch[]){
  const merchant=(s:string)=>s.toLowerCase().replace(/\b(?:refund|reversal|reversed|payments?|internet|pvt|ltd|private|limited)\b/g,'').replace(/[^a-z0-9]+/g,' ').trim().split(' ')[0];
  return rows.filter(r=>r.id!==row.id&&r.account===row.account&&r.direction!==row.direction&&isCardRow(r,batches)&&cardRowAvailable(r)&&(r.direction==='credit'?['refund','other'].includes(cardKind(r)):cardKind(r)==='purchase')&&(row.direction==='debit'?r.date>=row.date:r.date<=row.date)).map(r=>({row:r,differenceMinor:(row.direction==='debit'?row.amountMinor-r.amountMinor:r.amountMinor-row.amountMinor),sameMerchant:!!merchant(row.vendor)&&merchant(row.vendor)===merchant(r.vendor)})).sort((a,b)=>Number(a.differenceMinor!==0)-Number(b.differenceMinor!==0)||Number(b.sameMerchant)-Number(a.sameMerchant)||Math.abs(a.differenceMinor)-Math.abs(b.differenceMinor)||a.row.date.localeCompare(b.row.date));

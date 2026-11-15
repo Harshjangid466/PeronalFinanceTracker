@@ -13,6 +13,8 @@ export const settingsGroups = [
   {id:'classify',title:'Categories & labels',description:'Give every entry a useful place.',icon:Tag,
     items:[
       {id:'categories',label:'Categories & subcategories',description:'Organize spending and edit the labels beneath each category',keywords:'sub-category sub category'},
+      {id:'transactionTypes',label:'Transaction types & categories',description:'Custom transaction types with their own categories and subcategories',keywords:'universal menu revenue expense capex to ghar lent recovered investment'},
+      {id:'capexCategories',label:'CAPEX categories',description:'Asset categories and their subcategories',keywords:'capital expenditure asset category'},
       {id:'incomeTypes',label:'Income types',description:'Salary, interest and other income labels',keywords:'income misc'},
       {id:'investmentTypes',label:'Investment types',description:'Labels for investments and savings',keywords:'investment'},
       {id:'capexMerchants',label:'Purchase merchants',description:'Where you buy assets and larger purchases',keywords:'capex purchased from'},

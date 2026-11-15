@@ -8,6 +8,9 @@ import { Sheet } from '@/components/Sheet';
 import { MastersManager, MappingManager, RulesManager, AuditViewer, ExtendedFieldsManager } from '@/components/ConfigurationTools';
 import { RecurringScreen } from './RecurringScreen';
 import {SettingsDirectory, type SettingsSection} from '@/components/SettingsDirectory';
+import {BackupHealth} from '@/components/BackupHealth';
+import {requestBackupDownload} from '@/data/backupHealth';
+import {builtinTypeId,categoriesForType,configuredTypes} from '@/data/typeCatalog';
 
 export function SettingsScreen({initialSection,editorOnly=false,onEditorClose}:{initialSection?:SettingsSection;editorOnly?:boolean;onEditorClose?:()=>void}) {
   const [theme, updateTheme] = useState<Theme>(getTheme);
@@ -21,6 +24,7 @@ export function SettingsScreen({initialSection,editorOnly=false,onEditorClose}:{
     customFields,
     exportBackup,
     restoreBackup,
+    statementReady,statementError,
   } = useApp();
 
   const [section, setSection] = useState<SettingsSection | null>(initialSection||null);
@@ -32,16 +36,7 @@ export function SettingsScreen({initialSection,editorOnly=false,onEditorClose}:{
 
 
   function handleExportFile() {
-    const jsonStr = exportBackup();
-    const blob = new Blob([jsonStr], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `finance_tracker_backup_${new Date().toISOString().slice(0, 10)}.json`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    try{const result=requestBackupDownload(exportBackup());setRestoreStatus(result.warning||null);}catch(e){setRestoreStatus('Error: '+(e instanceof Error?e.message:String(e)));}
   }
 
   function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
@@ -69,8 +64,10 @@ export function SettingsScreen({initialSection,editorOnly=false,onEditorClose}:{
   return (
     <div>
       {!editorOnly&&<><div className="max-w-5xl mx-auto px-5 pt-5"><button className="text-cyan-600 underline min-h-11" onClick={()=>window.dispatchEvent(new Event('beta-open-guide'))}>New here? Open the setup guide</button></div>
-      <SettingsDirectory theme={theme} onTheme={choice=>{setTheme(choice);updateTheme(choice);}} onOpen={setSection} counts={{accounts:data.accounts.length,people:data.people.length,paymentModes:data.paymentModes.length,categories:data.categories.length,rules:data.rules.length,quickAmounts:quickAmounts.length,customFields:customFields.length,recurring:data.recurring.length}} /></>}
+      <SettingsDirectory theme={theme} onTheme={choice=>{setTheme(choice);updateTheme(choice);}} onOpen={setSection} counts={{accounts:data.accounts.length,people:data.people.length,paymentModes:data.paymentModes.length,categories:data.categories.length,transactionTypes:configuredTypes(data).length,capexCategories:categoriesForType(data,'CAPEX').length,rules:data.rules.length,quickAmounts:quickAmounts.length,customFields:customFields.length,recurring:data.recurring.length}} /></>}
       <div className="settings-editor">
+      <Sheet wide open={section==='transactionTypes'} onClose={closeSection} title="Transaction types & categories"><MastersManager kind="transactionType"/></Sheet>
+      <Sheet wide open={section==='capexCategories'} onClose={closeSection} title="CAPEX categories"><MastersManager kind="typeCategory" parentId={builtinTypeId('CAPEX')}/></Sheet>
       <Sheet wide open={section==='habits'} onClose={closeSection} title="Statement import habits"><Suspense fallback={<p>Opening habits…</p>}><ImportHabitsSettings /></Suspense></Sheet>
       <Sheet wide open={section==='rules'} onClose={closeSection} title="Entry rules"><RulesManager /></Sheet>
       <Sheet wide open={section==='mappings'} onClose={closeSection} title="Link methods to accounts"><MappingManager /></Sheet>
@@ -144,6 +141,7 @@ export function SettingsScreen({initialSection,editorOnly=false,onEditorClose}:{
       {/* 11. BACKUP & RESTORE (Section V) */}
       <Sheet wide open={section === 'backupRestore'} onClose={closeSection} title="Backup & Restore">
         <div className="space-y-4">
+          <BackupHealth/>
           <p className="text-xs text-slate-500 dark:text-slate-400">
             Export your entire financial dataset including all transactions, custom fields, dropdowns, and configurations to a standard versioned JSON file.
           </p>
@@ -157,9 +155,10 @@ export function SettingsScreen({initialSection,editorOnly=false,onEditorClose}:{
             </p>
             <button
               onClick={handleExportFile}
+              disabled={!statementReady&&!statementError}
               className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-cyan-600 text-white text-xs font-semibold active:scale-95 transition-transform"
             >
-              <Download size={16} /> Download Backup (.json)
+              <Download size={16} /> {statementError?'Download Partial Backup (.json)':'Download Backup (.json)'}
             </button>
           </div>
 

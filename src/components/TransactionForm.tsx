@@ -1,11 +1,12 @@
-import {CAPEX_CATEGORIES} from '@/data/types';
+import {builtinTypeId,configuredTypes,categoriesForType,categoryMaster} from '@/data/typeCatalog';
+import {uid} from '@/data/storage';
 import {suggestMerchantCategory,resolveSuggestion,rememberMerchant,categoryUnavailable} from '@/data/merchantCategories';
 import {defaultImportHabits} from '@/data/approvedHabits';
 import {MerchantSuggestionCard} from './MerchantSuggestionCard';
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useApp } from '@/context/AppContext';
 import type { Transaction, TransactionType, CustomFieldDefinition } from '@/data/types';
-import { CORE_TRANSACTION_TYPES, normalizeTransactionType } from '@/data/types';
+import { normalizeTransactionType } from '@/data/types';
 import { todayISO, formatCurrency } from '@/data/format';
 import { Check, Plus, AlertCircle, Sparkles, ChevronDown, X } from 'lucide-react';
 import { Sheet } from '@/components/Sheet';
@@ -15,24 +16,29 @@ import {useDraftGuard,requestNavigation,clearSheetDraft} from './NavigationGuard
 
 interface TransactionFormProps {
   initialType?: TransactionType;
+  initialTransactionTypeId?:string;
   editTransaction?: Transaction | null;
   onSuccess?: (savedTxn: Transaction) => void;
   onClose?: () => void;
   prefill?: Partial<Transaction>;
   isModal?: boolean;
+  expenseCreditOnly?: boolean;
 }
 
 export function TransactionForm({
   initialType = 'Revenue Expense',
+  initialTransactionTypeId,
   editTransaction,
   onSuccess,
   onClose,
   prefill,
   isModal = false,
+  expenseCreditOnly = false,
 }: TransactionFormProps) {
   const {
     data,
     configure,
+    manageMaster,
     addTransaction,
     updateTransaction,
     quickAmounts,
@@ -61,7 +67,10 @@ export function TransactionForm({
   const [amount, setAmount] = useState<string>(
     editTransaction ? String(Math.abs(editTransaction.amount)) : prefill?.amount ? String(Math.abs(prefill.amount)) : ''
   );
-  const [expenseCredit,setExpenseCredit]=useState((editTransaction?.amount??prefill?.amount??0)<0);
+  const [transactionTypeId,setTransactionTypeId]=useState(editTransaction?.transactionTypeId||prefill?.transactionTypeId||initialTransactionTypeId||builtinTypeId(editTransaction?.type||initialType));
+  const typeDefinitions=configuredTypes(data,true),selectedDefinition=typeDefinitions.find(m=>m.id===transactionTypeId);
+  const typeCategories=categoriesForType(data,type,transactionTypeId);
+  const [expenseCredit,setExpenseCredit]=useState(expenseCreditOnly||(editTransaction?.amount??prefill?.amount??0)<0);
   const [date, setDate] = useState<string>(
     editTransaction ? editTransaction.date : prefill?.date || todayISO()
   );
@@ -104,10 +113,10 @@ export function TransactionForm({
 
   const [rememberPayee,setRememberPayee]=useState(false);
   const merchantSuggestion=useMemo(()=>{
-    if(type!=='Revenue Expense')return;
+    if(type!=='Revenue Expense'||transactionTypeId!==builtinTypeId('Revenue Expense'))return;
     const suggestion=suggestMerchantCategory(heading||purchasedFrom,remarks,data.importHabits||defaultImportHabits(),data.transactions.filter(t=>t.id!==editTransaction?.id));
     return suggestion&&!categoryUnavailable(data,suggestion)?resolveSuggestion(suggestion,data.categories):undefined;
-  },[heading,purchasedFrom,remarks,type,data.importHabits,data.transactions,data.categories,data.masters,editTransaction?.id]);
+  },[heading,purchasedFrom,remarks,type,transactionTypeId,data.importHabits,data.transactions,data.categories,data.masters,editTransaction?.id]);
   const [saved, setSaved] = useState(false);
   const [possibleDuplicate, setPossibleDuplicate] = useState<Transaction | null>(null);
 
@@ -116,6 +125,7 @@ export function TransactionForm({
   const [addOptionTarget, setAddOptionTarget] = useState<string>('');
   const [addOptionLabel, setAddOptionLabel] = useState<string>('');
   const [newOptionValue, setNewOptionValue] = useState<string>('');
+  const [optionError,setOptionError]=useState('');
 
   // Frequent suggestion banner
   const [frequentSuggestion, setFrequentSuggestion] = useState<string | null>(null);
@@ -126,8 +136,8 @@ export function TransactionForm({
     const defaults=JSON.parse(resolvedDefaults) as Record<string,string>;
     if(!manualSource.current && defaults.account)setAccount(defaults.account);
     if(!manualMode.current && defaults.paymentMode)setPaymentMode(defaults.paymentMode);
-    if(defaults.majorCategory)setMajorCategory(defaults.majorCategory);
-    if(defaults.subCategory)setSubCategory(defaults.subCategory);
+    if(defaults.majorCategory&&typeCategories.some(c=>c.name===defaults.majorCategory))setMajorCategory(defaults.majorCategory);
+    if(defaults.subCategory&&typeCategories.some(c=>c.name===(defaults.majorCategory||majorCategory)&&c.subCategories.includes(defaults.subCategory)))setSubCategory(defaults.subCategory);
     if(defaults.person)setPerson(defaults.person);if(defaults.purchasedFrom)setPurchasedFrom(defaults.purchasedFrom);if(defaults.paymentFor)setPaymentFor(defaults.paymentFor);if(defaults.incomeType)setIncomeType(defaults.incomeType);if(defaults.investmentType)setInvestmentType(defaults.investmentType);
     const custom=Object.fromEntries(Object.entries(defaults).filter(([key])=>data.customFields.some(f=>f.key===key)));
     if(Object.keys(custom).length)setCustomFieldValues(prev=>({...prev,...custom}));
@@ -145,14 +155,15 @@ export function TransactionForm({
   useEffect(() => {
     if (!editTransaction && initialType) {
       setType(initialType);
+      setTransactionTypeId(prefill?.transactionTypeId||initialTransactionTypeId||builtinTypeId(initialType));
     }
-  }, [initialType, editTransaction]);
+  }, [initialType, initialTransactionTypeId, editTransaction]);
 
   // When majorCategory changes, reset subCategory if not in category's list
   const availableSubCategories = useMemo(() => {
-    const cat = data.categories.find((c) => c.name === majorCategory);
+    const cat = typeCategories.find((c) => c.name === majorCategory);
     return cat ? cat.subCategories : [];
-  }, [data.categories, majorCategory]);
+  }, [data.masters,transactionTypeId,type,majorCategory]);
 
   // Check duplicate when amount and date change
   useEffect(() => {
@@ -192,9 +203,11 @@ export function TransactionForm({
     setAddOptionLabel(label);
     setNewOptionValue('');
     setShowAddOption(true);
+    setOptionError('');
   }
 
   function handleConfirmAddOption() {
+    try{
     const val = newOptionValue.trim();
     if (!val) return;
 
@@ -202,13 +215,9 @@ export function TransactionForm({
       addPerson(val);
       setPerson(val);
     } else if (addOptionTarget === 'majorCategory') {
-      addCategory(val);
-      setMajorCategory(val);
+      const item=categoryMaster(data,type,transactionTypeId,'majorCategory',val,'',uid(),Date.now());if(!data.masters?.some(m=>m.id===item.id))manageMaster(item);setMajorCategory(item.name);setSubCategory('');
     } else if (addOptionTarget === 'subCategory') {
-      if (majorCategory) {
-        addSubCategory(majorCategory, val);
-      }
-      setSubCategory(val);
+      const item=categoryMaster(data,type,transactionTypeId,'subCategory',val,majorCategory,uid(),Date.now());if(!data.masters?.some(m=>m.id===item.id))manageMaster(item);setSubCategory(item.name);
     } else if (addOptionTarget === 'account') {
       addAccount(val);
       setAccount(val);
@@ -230,9 +239,12 @@ export function TransactionForm({
     }
 
     setShowAddOption(false);
+    }catch(e){setOptionError(e instanceof Error?e.message:String(e));}
   }
 
   const isValid = useMemo(() => {
+    if(!selectedDefinition||selectedDefinition.baseType!==type||!selectedDefinition.active&&!isEdit)return false;
+    if(expenseCreditOnly&&(type!=='Revenue Expense'||!expenseCredit))return false;
     const amt = parseFloat(amount);
     if (!Number.isFinite(amt) || amt <= 0 || !Number.isSafeInteger(Math.round(amt*100)) || Math.abs(amt*100-Math.round(amt*100))>1e-6) return false;
     if (!date) return false;
@@ -264,6 +276,8 @@ export function TransactionForm({
     investmentType,
     applicableCustomFields,
     customFieldValues,
+    expenseCreditOnly,expenseCredit,
+    selectedDefinition,isEdit,
   ]);
 
   function handleSubmit() {
@@ -272,6 +286,7 @@ export function TransactionForm({
 
     const amt = (parseFloat(amount) || 0)*(type==='Revenue Expense'&&expenseCredit?-1:1);
     const txnPayload: Partial<Transaction> & { amount: number; type: TransactionType } = {
+      transactionTypeId,
       ...(!isEdit&&prefill?.entrySource?{entrySource:prefill.entrySource}:{}),
       type,
       amount: amt,
@@ -307,7 +322,7 @@ export function TransactionForm({
       }, 500);
     }
 
-    if(rememberPayee&&!expenseCredit&&type==='Revenue Expense'&&heading.trim()&&majorCategory)configure({importHabits:rememberMerchant(data.importHabits||defaultImportHabits(),heading,majorCategory,subCategory)});
+    if(rememberPayee&&!expenseCredit&&transactionTypeId===builtinTypeId('Revenue Expense')&&type==='Revenue Expense'&&heading.trim()&&majorCategory)configure({importHabits:rememberMerchant(data.importHabits||defaultImportHabits(),heading,majorCategory,subCategory)});
     setSaved(true);
     setTimeout(() => {
       setSaved(false);
@@ -338,6 +353,7 @@ export function TransactionForm({
     addFrequentTransaction({
       label,
       type,
+      transactionTypeId,
       amount: (parseFloat(amount)||0)*(type==='Revenue Expense'&&expenseCredit?-1:1)||undefined,
       majorCategory,
       subCategory,
@@ -361,24 +377,21 @@ export function TransactionForm({
       {/* Transaction Type Selector Bar (if in Add screen or editing) */}
       <div className="flex items-center justify-between pb-1">
         <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
-          {CORE_TRANSACTION_TYPES.map((t) => (
+          {typeDefinitions.filter(m=>m.active||isEdit&&m.id===transactionTypeId).map((m) => (
             <button
-              key={t}
+              key={m.id}
               type="button"
+              disabled={expenseCreditOnly&&m.baseType!=='Revenue Expense'}
               onClick={() => {
-                guard.mark();setType(t);
-                // Set default categories if switching
-                if (t === 'Revenue Expense' && !majorCategory) {
-                  setMajorCategory(data.categories[0]?.name || 'Food');
-                }
+                if(m.id===transactionTypeId)return;guard.mark();setType(m.baseType!);setTransactionTypeId(m.id);setMajorCategory('');setSubCategory('');setPerson('');setPurchasedFrom('');setPaymentFor('');setIncomeType('');setInvestmentType('');setCustomFieldValues({});setExpenseCredit(expenseCreditOnly);setRememberPayee(false);
               }}
               className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
-                type === t
+                transactionTypeId === m.id
                   ? 'bg-cyan-600 text-white shadow-sm shadow-cyan-600/30'
                   : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
               }`}
             >
-              {t}
+              {m.name}
             </button>
           ))}
         </div>
@@ -428,7 +441,7 @@ export function TransactionForm({
         </div>
       )}
 
-      {type==='Revenue Expense'&&<label className="block text-sm">Expense entry<select aria-label="Expense entry direction" className="w-full p-3 rounded-xl bg-slate-100 dark:bg-slate-800" value={expenseCredit?'credit':'debit'} onChange={e=>setExpenseCredit(e.target.value==='credit')}><option value="debit">Expense paid</option><option value="credit">Reimbursement / refund (reduces spending)</option></select></label>}
+      {type==='Revenue Expense'&&<label className="block text-sm">Expense entry<select aria-label="Expense entry direction" disabled={expenseCreditOnly} className="w-full p-3 rounded-xl bg-slate-100 dark:bg-slate-800" value={expenseCredit?'credit':'debit'} onChange={e=>setExpenseCredit(e.target.value==='credit')}><option value="debit">Expense paid</option><option value="credit">Reimbursement / refund (reduces spending)</option></select></label>}
       {/* Amount Input */}
       <div>
         <label className="text-xs font-semibold text-slate-600 dark:text-slate-400 block mb-1">
@@ -468,74 +481,14 @@ export function TransactionForm({
       </div>
 
       <MerchantSuggestionCard suggestion={merchantSuggestion} category={majorCategory} subcategory={subCategory} onApply={s=>{guard.mark();setMajorCategory(s.category);setSubCategory(s.subcategory);}}/>
-      {type==='Revenue Expense'&&heading.trim()&&<label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={rememberPayee} onChange={e=>setRememberPayee(e.target.checked)}/>Remember the category I save for this payee</label>}
+      {type==='Revenue Expense'&&transactionTypeId===builtinTypeId('Revenue Expense')&&heading.trim()&&<label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={rememberPayee} onChange={e=>setRememberPayee(e.target.checked)}/>Remember the category I save for this payee</label>}
       {/* TYPE-SPECIFIC FIELDS */}
 
-      {/* 1. REVENUE EXPENSE FIELDS */}
-      {type === 'Revenue Expense' && (
-        <>
-          {/* Major Category */}
-          <div>
-            <div className="flex items-center justify-between mb-1">
-              <label className="text-xs font-semibold text-slate-600 dark:text-slate-400">
-                Major Category *
-              </label>
-              <button
-                type="button"
-                onClick={() => openAddOption('majorCategory', 'Category')}
-                className="text-xs text-cyan-600 dark:text-cyan-400 flex items-center gap-0.5 font-medium"
-              >
-                <Plus size={14} /> Add Category
-              </button>
-            </div>
-            <select
-              value={majorCategory}
-              onChange={(e) => {
-                setMajorCategory(e.target.value);
-                setSubCategory('');
-              }}
-              className="w-full px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-cyan-500 text-sm"
-            >
-              <option value="">Select Category</option>
-              {data.categories.map((c) => (
-                <option key={c.name} value={c.name}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Sub Category */}
-          {majorCategory && (
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="text-xs font-semibold text-slate-600 dark:text-slate-400">
-                  Sub-category
-                </label>
-                <button
-                  type="button"
-                  onClick={() => openAddOption('subCategory', 'Sub-category')}
-                  className="text-xs text-cyan-600 dark:text-cyan-400 flex items-center gap-0.5 font-medium"
-                >
-                  <Plus size={14} /> Add Sub-category
-                </button>
-              </div>
-              <select
-                value={subCategory}
-                onChange={(e) => setSubCategory(e.target.value)}
-                className="w-full px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-cyan-500 text-sm"
-              >
-                <option value="">Select Sub-category</option>
-                {availableSubCategories.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-        </>
-      )}
+      {(type==='Revenue Expense'||type==='CAPEX'||typeCategories.length>0||majorCategory)&&<div className="space-y-3">
+        <div className="flex justify-between items-center"><label htmlFor="entry-category" className="text-xs font-semibold">{type==='CAPEX'?'Asset category *':type==='Revenue Expense'?'Major Category *':'Category (optional)'}</label><button type="button" className="text-cyan-600 text-xs" onClick={()=>openAddOption('majorCategory','Category')}>Add category</button></div>
+        <select id="entry-category" aria-label="Entry category" className="w-full p-3 rounded-xl bg-slate-100 dark:bg-slate-800" value={majorCategory} onChange={e=>{setMajorCategory(e.target.value);setSubCategory('');}}><option value="">Choose category</option>{[...typeCategories.map(c=>c.name),...(majorCategory&&!typeCategories.some(c=>c.name===majorCategory)?[majorCategory]:[])].map(name=><option key={name} value={name}>{name}</option>)}</select>
+        {majorCategory&&<><div className="flex justify-between items-center"><label htmlFor="entry-subcategory" className="text-xs font-semibold">Subcategory</label><button type="button" className="text-cyan-600 text-xs" onClick={()=>openAddOption('subCategory','Sub-category')}>Add subcategory</button></div><select id="entry-subcategory" aria-label="Entry subcategory" className="w-full p-3 rounded-xl bg-slate-100 dark:bg-slate-800" value={subCategory} onChange={e=>setSubCategory(e.target.value)}><option value="">Choose subcategory (optional)</option>{[...new Set([...availableSubCategories,...(subCategory?[subCategory]:[])])].map(name=><option key={name} value={name}>{name}</option>)}</select></>}
+      </div>}
 
       {/* 2. LENT FIELDS */}
       {type === 'Lent' && (
@@ -610,34 +563,6 @@ export function TransactionForm({
       {/* 4. CAPEX FIELDS */}
       {type === 'CAPEX' && (
         <>
-          <div>
-            <div className="flex items-center justify-between mb-1">
-              <label className="text-xs font-semibold text-slate-600 dark:text-slate-400">
-                Asset Category *
-              </label>
-              <button
-                type="button"
-                onClick={() => openAddOption('majorCategory', 'Category')}
-                className="text-xs text-cyan-600 dark:text-cyan-400 flex items-center gap-0.5 font-medium"
-              >
-                <Plus size={14} /> Add
-              </button>
-            </div>
-            <select
-              value={majorCategory}
-              onChange={(e) => setMajorCategory(e.target.value)}
-              className="w-full px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-cyan-500 text-sm"
-            >
-              <option value="">Select Asset Category</option>
-              {CAPEX_CATEGORIES.map(
-                (opt) => (
-                  <option key={opt} value={opt}>
-                    {opt}
-                  </option>
-                )
-              )}
-            </select>
-          </div>
           <div>
             <div className="flex items-center justify-between mb-1">
               <label className="text-xs font-semibold text-slate-600 dark:text-slate-400">
@@ -897,7 +822,7 @@ export function TransactionForm({
 
       {/* Quick Add Option Sheet */}
       <Sheet open={showAddOption} onClose={() => setShowAddOption(false)} title={`Add ${addOptionLabel}`}>
-        <div className="space-y-4">
+        <div className="space-y-4">{optionError&&<p role="alert" className="text-rose-600">{optionError}</p>}
           <input
             type="text"
             value={newOptionValue}
