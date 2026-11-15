@@ -64,3 +64,16 @@ html.dark input:-webkit-autofill, html.dark textarea:-webkit-autofill, html.dark
   box-shadow: 0 0 0 1000px #0f172a inset;
   caret-color: #ffffff;
 }
+
+/* Shared navigation: visible labels, consistent targets and keyboard feedback. */
+.app-navigation {position:fixed;bottom:0;left:0;right:0;z-index:40;background:#fff;border-top:1px solid #e2e8f0;padding:6px 8px max(6px,env(safe-area-inset-bottom));}
+.app-navigation>div {display:flex;max-width:640px;margin:auto;gap:4px;}
+.app-navigation button {flex:1;min-width:0;min-height:58px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;border-radius:12px;color:#475569;font-size:11px;font-weight:600;}
+.navigation-icon {display:flex;align-items:center;justify-content:center;min-width:44px;height:30px;border-radius:10px;}
+.app-navigation button[aria-current=page] {color:#0e7490;background:#ecfeff;}
+.app-navigation .navigation-add .navigation-icon {background:#0e7490;color:#fff;}
+.dark .app-navigation {background:#0f172a;border-color:#334155;}
+.dark .app-navigation button {color:#cbd5e1;}
+.dark .app-navigation button[aria-current=page] {background:#164e63;color:#a5f3fc;}
+:where(button,a,input,select,textarea,summary):focus-visible {outline:3px solid #0891b2;outline-offset:3px;}
+@media(prefers-reduced-motion:reduce) {*,*::before,*::after {scroll-behavior:auto!important;animation-duration:0.01ms!important;transition-duration:0.01ms!important;}}
