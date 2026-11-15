@@ -4,3 +4,9 @@
 
 .beta-toolbar{flex-wrap:wrap}.beta-toolbar>div{flex-wrap:wrap}
 .beta-tour{position:fixed;inset:0;z-index:110;overflow:hidden}.beta-tour-highlight{position:fixed;border:3px solid #22d3ee;border-radius:12px;box-shadow:0 0 0 9999px rgb(2 6 23 / .72);pointer-events:none}.beta-tour-card{position:fixed;left:50%;transform:translateX(-50%);width:min(380px,calc(100vw - 24px));max-height:calc(100dvh - 160px);overflow:auto;padding:22px;background:#fff;color:#0f172a;border:1px solid #94a3b8;border-radius:14px;box-shadow:0 12px 40px #02061766}.beta-tour-card h2{font-size:22px;font-weight:700;margin:8px 0}.beta-tour-card p{font-size:15px;line-height:1.6}.beta-tour-card small{color:#475569}.beta-tour-card .beta-actions{gap:8px;margin-top:18px}.dark .beta-tour-card{background:#0f172a;color:#f1f5f9}.dark .beta-tour-card small{color:#cbd5e1}
+.beta-setup-directory {margin-top:24px;border-top:1px solid #94a3b8;padding-top:12px;}
+.beta-setup-directory summary {min-height:44px;cursor:pointer;padding:10px 0;font-weight:600;}
+.beta-setup-directory nav {display:grid;gap:8px;margin:12px 0;}
+.beta-setup-directory button {min-height:44px;text-align:left;padding:10px 12px;border:1px solid #94a3b8;border-radius:10px;font-size:14px;}
+.beta-setup-directory button[aria-current=step] {background:#0e7490;color:white;border-color:#0e7490;}
+.beta-toolbar button {text-decoration:none;border:1px solid #94a3b8;border-radius:8px;padding:8px 12px;}
