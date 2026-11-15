@@ -67,6 +67,7 @@ export interface FinancialEffect {
 export function deriveFinancialEffect(type: TransactionType, amount: number): FinancialEffect { return financialEffect(normalizeTransactionType(type),Math.round(amount*100)); }
 
 export interface Transaction {
+  transactionTypeId?:string;
   deletedVia?:'individual'|'import-removal'|'import-undo'|'receivable-removal'|'cc-offset'|'transfer-link';
   entrySource?:{kind:'manual'|'paytm-pdf'|'bank-pdf'|'excel-csv'|'recurring'|'bank-alert'|'legacy';batchId?:string;fileName?:string};
   statementReferences?:string[];
@@ -123,6 +124,7 @@ export interface Receivable {
 }
 
 export interface Recurring {
+  transactionTypeId?:string;
   person?:string; purchasedFrom?:string; paymentFor?:string; incomeType?:string; investmentType?:string;
   id: string;
   description: string;
@@ -158,6 +160,7 @@ export interface QuickExpense {
 }
 
 export interface FrequentTransaction {
+  transactionTypeId?:string;
   id: string;
   label: string;
   type: TransactionType;

@@ -10,6 +10,7 @@ import { RecurringScreen } from './RecurringScreen';
 import {SettingsDirectory, type SettingsSection} from '@/components/SettingsDirectory';
 import {BackupHealth} from '@/components/BackupHealth';
 import {requestBackupDownload} from '@/data/backupHealth';
+import {builtinTypeId,categoriesForType,configuredTypes} from '@/data/typeCatalog';
 
 export function SettingsScreen() {
   const [theme, updateTheme] = useState<Theme>(getTheme);
@@ -60,8 +61,10 @@ export function SettingsScreen() {
 
   return (
     <div>
-      <SettingsDirectory theme={theme} onTheme={choice=>{setTheme(choice);updateTheme(choice);}} onOpen={setSection} counts={{accounts:data.accounts.length,people:data.people.length,paymentModes:data.paymentModes.length,categories:data.categories.length,rules:data.rules.length,quickAmounts:quickAmounts.length,customFields:customFields.length,recurring:data.recurring.length}} />
+      <SettingsDirectory theme={theme} onTheme={choice=>{setTheme(choice);updateTheme(choice);}} onOpen={setSection} counts={{accounts:data.accounts.length,people:data.people.length,paymentModes:data.paymentModes.length,categories:data.categories.length,transactionTypes:configuredTypes(data).length,capexCategories:categoriesForType(data,'CAPEX').length,rules:data.rules.length,quickAmounts:quickAmounts.length,customFields:customFields.length,recurring:data.recurring.length}} />
       <div className="settings-editor">
+      <Sheet wide open={section==='transactionTypes'} onClose={()=>setSection(null)} title="Transaction types & categories"><MastersManager kind="transactionType"/></Sheet>
+      <Sheet wide open={section==='capexCategories'} onClose={()=>setSection(null)} title="CAPEX categories"><MastersManager kind="typeCategory" parentId={builtinTypeId('CAPEX')}/></Sheet>
       <Sheet wide open={section==='habits'} onClose={()=>setSection(null)} title="Statement import habits"><Suspense fallback={<p>Opening habits…</p>}><ImportHabitsSettings /></Suspense></Sheet>
       <Sheet wide open={section==='rules'} onClose={()=>setSection(null)} title="Entry rules"><RulesManager /></Sheet>
       <Sheet wide open={section==='mappings'} onClose={()=>setSection(null)} title="Link methods to accounts"><MappingManager /></Sheet>

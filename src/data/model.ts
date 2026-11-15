@@ -6,9 +6,11 @@ import {applyRemovalTombstones,validateEntryMetadata} from './entryManagement';
 import {applyCardOffsetState} from './cardReconciliation';
 import {applyTransferState} from './transferLinks';
 import {validateReimbursements} from './reimbursements';
+import {CORE_TRANSACTION_TYPES,CAPEX_CATEGORIES,type TransactionType} from './types';
+import {builtinTypeId,recordTypeId,recordFieldKind,fieldReferencesMaster,validateTypeCatalog} from './typeCatalog';
 
-export type MasterKind = 'source' | 'paymentMode' | 'category' | 'subCategory' | 'person' | 'merchant' | 'purpose' | 'incomeType' | 'investmentType' | 'dropdownOption';
-export interface MasterItem { accountType?:AccountType; id: string; kind: MasterKind; name: string; active: boolean; order: number; parentId?: string; updatedAt: number }
+export type MasterKind = 'source' | 'paymentMode' | 'category' | 'subCategory' | 'person' | 'merchant' | 'purpose' | 'incomeType' | 'investmentType' | 'dropdownOption' | 'transactionType' | 'typeCategory' | 'typeSubCategory';
+export interface MasterItem { baseType?:TransactionType; accountType?:AccountType; id: string; kind: MasterKind; name: string; active: boolean; order: number; parentId?: string; updatedAt: number }
 export const canonicalSources = ['Cash','HDFC Savings A/c','BOB Savings A/c','SBI Savings A/c','RGB Savings A/c','HDFC Swiggy CC','Amazon ICICI CC','Flipkart Axis CC','ICICI Coral CC','Scapia Federal CC','BOB ICAI CC','SBI PhonePe CC','Axis Neo CC','Amazon Pay','Pluxee card','Splitwise'];
 export const canonicalModes = ['Cash','UPI','CC','Net banking','Splitwise','Wallet'];
 export const canonicalPeople = ['Siddharth Bhardwaj','VBL Pepsi Business'];
@@ -38,27 +40,32 @@ export function migrateData(input: AppData): AppData {
   data.bankAlerts ||= []; validateAlerts(data.bankAlerts);
   const upgrading = data.schemaVersion < 4 || !data.masters;
   data.masters ||= []; data.sourceMappings ||= {}; data.suppressedPatterns ||= [];
+  const initialiseCatalog=!data.masters.some(m=>m.kind==='transactionType');
+  for(const [order,name] of CORE_TRANSACTION_TYPES.entries())if(!data.masters.some(m=>m.id===builtinTypeId(name)))data.masters.push({id:builtinTypeId(name),kind:'transactionType',name,baseType:name,active:true,order,updatedAt:0});
   data.rules ||= []; data.actionLog ||= []; data.learningEnabled ??= true;
   for(const m of data.masters){if(m.accountType!==undefined&&(m.kind!=='source'||!ACCOUNT_TYPES.includes(m.accountType)))throw Error('Invalid account type.');if(m.kind==='source')m.accountType??=defaultAccountType(m.name);}
   const ensure = (kind: MasterKind, raw: string, parentId?: string, active = true): MasterItem | undefined => {
     if (!raw) return undefined;
     const name = upgrading ? canonicalName(kind, raw) : raw;
-    let item = data.masters!.find(m=>m.kind===kind && m.name===name && m.parentId===parentId);
+    let item = data.masters!.find(m=>m.kind===kind && (['typeCategory','typeSubCategory'].includes(kind)?m.name.toLowerCase()===name.toLowerCase():m.name===name) && m.parentId===parentId);
     if (!item) { item = {id:stableId(kind,(parentId || '')+name),kind,name,active,order:data.masters!.filter(m=>m.kind===kind).length,updatedAt:Date.now(),parentId}; data.masters!.push(item); }
     return item;
   };
   for (const [key,kind] of Object.entries(listFields)) for (const name of (data as unknown as Record<string,string[]>)[key] || []) ensure(kind,name);
   for (const cat of data.categories) { const parent=ensure('category',cat.name); for (const sub of cat.subCategories) ensure('subCategory',sub,parent?.id); }
+  if(initialiseCatalog)for(const name of CAPEX_CATEGORIES)ensure('typeCategory',name,builtinTypeId('CAPEX'));
   if (upgrading) {
     canonicalSources.forEach(n=>ensure('source',n)); canonicalModes.forEach(n=>ensure('paymentMode',n)); canonicalPeople.forEach(n=>ensure('person',n)); canonicalCategories.forEach(n=>ensure('category',n));
   }
   if(upgrading){for(const [key,kind] of Object.entries({deactivatedAccounts:'source',deactivatedPaymentModes:'paymentMode',deactivatedCategories:'category',deactivatedPeople:'person'} as Record<string,MasterKind>))for(const name of (data as unknown as Record<string,string[]>)[key]||[]){const item=ensure(kind,name);if(item)item.active=false;}}
   const attach = (record: Record<string,unknown>) => {
-    for (const [field,kind] of Object.entries(masterFields)) {
+    if(CORE_TRANSACTION_TYPES.includes(record.type as TransactionType))record.transactionTypeId ||= builtinTypeId(String(record.type));
+    for (const [field,defaultKind] of Object.entries(masterFields)) {
+      const kind=recordFieldKind(field,record,defaultKind)!;
       const name=String(record[field] || '');
-      const parentId=kind==='subCategory' ? String(record.majorCategoryId || '') : undefined;
-      const referenced=data.masters!.find(m=>m.id===record[idFields[field]]&&m.kind===kind);
-      const item=referenced || ensure(kind,name,parentId,false);
+      const parentId=kind==='subCategory'||kind==='typeSubCategory'?String(record.majorCategoryId||''):kind==='typeCategory'?recordTypeId(record):undefined;
+      const referenced=data.masters!.find(m=>m.id===record[idFields[field]]&&m.kind===kind&&m.parentId===parentId);
+      const item=referenced || ensure(kind,name,parentId,initialiseCatalog&&kind==='typeCategory');
       if (item) { record[field]=item.name; record[idFields[field]]=item.id; }
     }
   };
@@ -92,6 +99,7 @@ export function migrateData(input: AppData): AppData {
   for(const m of data.masters.filter(m=>m.kind==='source'))m.accountType??=defaultAccountType(m.name);
   for(const mode of data.masters.filter(m=>m.kind==='paymentMode'))if(data.sourceMappings[mode.id]===undefined)data.sourceMappings[mode.id]=data.masters.filter(m=>m.kind==='source'&&m.accountType&&compatibleModes(m.accountType).includes(mode.name)).map(m=>m.id);
   data.schemaVersion=4;
+  validateTypeCatalog(data);
   return projectMasters(data);
 }
 export function projectMasters(data: AppData): AppData {
@@ -134,11 +142,10 @@ export function visibleField(field: CustomFieldDefinition, all: CustomFieldDefin
 }
 export function searchableText(value:unknown):string { if(Array.isArray(value))return value.map(searchableText).join(' ');if(value&&typeof value==='object')return Object.entries(value).map(([key,item])=>key+' '+searchableText(item)).join(' ');return String(value??'').toLowerCase();}
 export function patternKey(t: Partial<Transaction>): string {
-  return JSON.stringify([t.type,t.majorCategory,t.subCategory,t.paymentMode,t.account,t.person,t.purchasedFrom,t.paymentFor,t.incomeType,t.investmentType,Math.round((t.amount||0)/10)*10,Object.entries(t.customFields||{}).sort()]);
+  return JSON.stringify([t.type,t.majorCategory,t.subCategory,t.paymentMode,t.account,t.person,t.purchasedFrom,t.paymentFor,t.incomeType,t.investmentType,Math.round((t.amount||0)/10)*10,Object.entries(t.customFields||{}).sort(),...(t.transactionTypeId&&t.transactionTypeId!==builtinTypeId(t.type||'Revenue Expense')?[t.transactionTypeId]:[])]);
 }
 export function dependencies(data: AppData, item: MasterItem) {
-  const fields=Object.entries(masterFields).filter(([,kind])=>kind===item.kind).map(([f])=>f);
-  const references=(record:Record<string,unknown>)=>fields.some(f=>record[idFields[f]]?record[idFields[f]]===item.id:record[f]===item.name);
+  const references=(record:Record<string,unknown>)=>item.kind==='transactionType'?recordTypeId(record)===item.id:Object.entries(masterFields).some(([field,kind])=>fieldReferencesMaster(record,field,item,kind,idFields[field]));
   const customField=item.kind==='dropdownOption'?data.customFields.find(f=>f.id===item.parentId):undefined;
   const isReferenced=(record:Record<string,unknown>)=>{const custom=(record.customFields||{}) as Record<string,unknown>;return references(record)||!!customField&&(Array.isArray(custom[customField.key])?(custom[customField.key] as unknown[]).includes(item.name):custom[customField.key]===item.name);};
   const rules=data.rules.filter(r=>[...r.conditions,...r.actions].some(c=>c.valueId===item.id));

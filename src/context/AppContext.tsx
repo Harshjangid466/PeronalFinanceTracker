@@ -1,4 +1,5 @@
 import {mapTypedAccount} from '@/data/accountTypes';
+import {builtinTypeId,fieldReferencesMaster,recordTypeId} from '@/data/typeCatalog';
 import {applyTransfer,undoTransfer,transferLocks} from '@/data/transferLinks';
 import {trackReimbursement,changeReimbursement} from '@/data/reimbursements';
 import {applyCategoryProposals,type CategoryProposal} from '@/data/merchantCategories';
@@ -245,11 +246,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   function undoCardOffset(id:string){if(!statementReady||statementError)throw Error('Statement history is not ready.');const now=Date.now();undoOffset(allData,id,now);setData(prev=>{if(prev.cardSettlements?.find(g=>g.id===id)?.status==='undone')return prev;const next=undoOffset(prev,id,now);return {...next,actionLog:[...next.actionLog,{id:uid(),timestamp:now,actionType:'undo',entityType:'cardSettlements',entityId:id,description:'Undid card offset; restored original entries and source review states'}]};});}
   function statementTransaction(row:StatementRow,details:Partial<Transaction>,batch?:StatementBatch):Transaction{
     const type=details.type||'Revenue Expense',now=Date.now(),signedMinor=type==='Revenue Expense'&&row.direction==='credit'?-row.amountMinor:row.amountMinor;
-    return {id:`statement:${encodeURIComponent(row.id)}`,entrySource:statementEntrySource(row,batch||allData.statementBatches?.find(b=>b.id===row.batchId)),schemaVersion:4,type,amount:signedMinor/100,amountMinor:signedMinor,currency:'INR',date:row.date,createdAt:now,updatedAt:now,majorCategory:details.majorCategory||'',subCategory:details.subCategory||'',paymentMode:details.paymentMode||'UPI',account:row.account,person:details.person||'',heading:details.heading||row.vendor,remarks:details.remarks??row.note,customFields:details.customFields||{},financialEffect:financialEffect(type,signedMinor),status:'active',purchasedFrom:details.purchasedFrom||'',paymentFor:details.paymentFor||'',incomeType:details.incomeType||'',investmentType:details.investmentType||'',statementReferences:row.reference?[row.reference]:[]};
+    return {id:`statement:${encodeURIComponent(row.id)}`,entrySource:statementEntrySource(row,batch||allData.statementBatches?.find(b=>b.id===row.batchId)),schemaVersion:4,type,transactionTypeId:details.transactionTypeId,amount:signedMinor/100,amountMinor:signedMinor,currency:'INR',date:row.date,createdAt:now,updatedAt:now,majorCategory:details.majorCategory||'',subCategory:details.subCategory||'',paymentMode:details.paymentMode||'UPI',account:row.account,person:details.person||'',heading:details.heading||row.vendor,remarks:details.remarks??row.note,customFields:details.customFields||{},financialEffect:financialEffect(type,signedMinor),status:'active',purchasedFrom:details.purchasedFrom||'',paymentFor:details.paymentFor||'',incomeType:details.incomeType||'',investmentType:details.investmentType||'',statementReferences:row.reference?[row.reference]:[]};
   }
   function undoStatementBatch(id:string){setData(prev=>{const batch=prev.statementBatches?.find(b=>b.id===id);if(!batch)return prev;const ids=new Set(batchUndoCandidates(batch,prev.statementRows||[],prev.transactions));return {...prev,transactions:prev.transactions.map(t=>ids.has(t.id)?{...t,status:'deleted',deletedVia:'import-undo',deletedAt:Date.now(),updatedAt:Date.now()}:t),actionLog:[...prev.actionLog,{id:uid(),timestamp:Date.now(),actionType:'undo',entityType:'statement',entityId:id,description:`Undid ${ids.size} untouched auto-posted entries; retained import review history`}]};});}
   function ensureStatementCategory(prev:AppData,t:Transaction){
-    if(!t.majorCategory)return prev.categories;
+    if(!t.majorCategory||recordTypeId(t as unknown as Record<string,unknown>)!==builtinTypeId('Revenue Expense'))return prev.categories;
     const found=prev.categories.find(c=>c.name===t.majorCategory);
     return found?prev.categories.map(c=>c.name===t.majorCategory&&t.subCategory&&!c.subCategories.includes(t.subCategory)?{...c,subCategories:[...c.subCategories,t.subCategory]}:c):[...prev.categories,{name:t.majorCategory,subCategories:t.subCategory?[t.subCategory]:[]}];
   }
@@ -354,7 +355,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       const refresh=(record:Record<string,unknown>)=>{
         const copy={...record};
-        for(const [field,kind] of Object.entries(masterFields))if(kind===item.kind && (copy[idFields[field]]===item.id || existing && copy[field]===existing.name)) {copy[field]=item.name; copy[idFields[field]]=item.id;}
+        for(const [field,kind] of Object.entries(masterFields))if(fieldReferencesMaster(copy,field,existing||item,kind,idFields[field])) {copy[field]=item.name; copy[idFields[field]]=item.id;}
         return copy;
       };
       for(const key of ['transactions','recurring','frequentTransactions','quickExpenses','receivables','repayments'] as const) (next as unknown as Record<string,unknown>)[key]=next[key].map(r=>refresh(r as unknown as Record<string,unknown>));
@@ -367,6 +368,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }
   function removeMaster(id:string) {
     const item=allData.masters?.find(m=>m.id===id); if(!item)return;
+    if(item.kind==='transactionType'&&item.id===builtinTypeId(item.baseType||''))throw Error('Built-in transaction types can be deactivated, not permanently deleted.');
     const refs=dependencies(allData,item);
     if(refs.transactions || refs.rules.length || refs.recurring || refs.mappings.length || refs.templates || refs.children)throw new Error('This value is referenced. Deactivate or resolve dependencies first.');
     setData(prev=>projectMasters({...prev,masters:prev.masters?.filter(m=>m.id!==id)}));
@@ -402,6 +404,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       id: `recurring:${encodeURIComponent(id)}:${r.nextDueDate}`,
       schemaVersion: 2,
       type: normType,
+      transactionTypeId:r.transactionTypeId,
       heading: r.description,
       amount,
       amountMinor,
@@ -454,6 +457,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       id: uid(),
       schemaVersion: 2,
       type: normType,
+      transactionTypeId:t.transactionTypeId,
       heading: t.heading || '',
       entrySource:t.entrySource||{kind:'manual'},
       amount,
@@ -784,6 +788,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const alreadySaved = data.frequentTransactions.some(
           (f) =>
             f.type === sample.type &&
+            recordTypeId(f as unknown as Record<string,unknown>)===recordTypeId(sample as unknown as Record<string,unknown>) &&
             f.majorCategory === sample.majorCategory &&
             f.subCategory === sample.subCategory &&
             f.amount === sample.amount &&
@@ -799,6 +804,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           candidates.push({
             label,
             type: sample.type,
+            transactionTypeId:sample.transactionTypeId,
             amount: sample.amount,
             majorCategory: sample.majorCategory,
             subCategory: sample.subCategory,

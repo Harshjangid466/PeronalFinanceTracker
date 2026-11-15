@@ -1,6 +1,7 @@
 import {validateCardSettlements} from './cardReconciliation';
 import {validateTransferLinks} from './transferLinks';
 import {validateReimbursements} from './reimbursements';
+import {validateTypeCatalog} from './typeCatalog';
 import {validateEntryMetadata} from './entryManagement';
 import {validateStatementRows,validateStatementBatches,validateHabits} from './statements';
 import {validateAlerts} from './alerts';
@@ -60,6 +61,7 @@ export function validateDocument(value:unknown):asserts value is CloudDocument {
   for(const b of batches)if(Array.isArray(b.rowIds)&&b.rowIds.some(id=>!rids.has(id)))throw Error('Import contains missing statement rows.');
   validateEntryMetadata(d as unknown as AppData);validateCardSettlements(d as unknown as AppData);
   validateTransferLinks(d as unknown as AppData);validateReimbursements(d as unknown as AppData);
+  validateTypeCatalog(d as unknown as AppData);
   for(const r of rows)if(r.transferLinkId&&!(d.transferLinks as {id:string;status:string}[]||[]).some(g=>g.id===r.transferLinkId&&g.status==='active'))throw Error('Missing active transfer link');
   if(Array.isArray(d.masters)){const ids=new Set((d.masters as {id:string}[]).map(m=>m.id));for(const record of [...tx,...d.recurring as Record<string,unknown>[]])for(const key of ['sourceId','paymentModeId','majorCategoryId','subCategoryId','personId','merchantId','purposeId','incomeTypeId','investmentTypeId'])if(record[key]&&!ids.has(record[key] as string))throw Error('A financial record references a missing master. Restore that master or correct the record before syncing.');}
   // Reject prototype keys at the untrusted cloud boundary, including unknown fields.

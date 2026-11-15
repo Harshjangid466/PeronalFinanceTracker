@@ -23,6 +23,8 @@
     "test:account-reconciliation-ui": "node scripts/verify-account-reconciliation-ui.mjs",
     "test:money-links": "node scripts/verify-money-links.cjs",
     "test:money-links-ui": "node scripts/verify-money-links-ui.mjs",
+    "test:type-catalog": "node scripts/verify-type-catalog.cjs",
+    "test:type-catalog-ui": "node scripts/verify-type-catalog-ui.mjs",
     "test:bank-pdf": "node scripts/verify-bank-pdf.cjs",
     "test:cashback": "node scripts/verify-cashback.cjs",
     "test:card-reconciliation": "node scripts/verify-card-reconciliation.cjs",

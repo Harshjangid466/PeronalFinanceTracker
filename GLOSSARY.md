@@ -19,3 +19,5 @@
 **Reimbursement claim**: An amount expected back against a recorded personal expense. The expected amount can be less than the original expense; separate expense credits reduce what is still outstanding.
 
 **Backup download request**: The browser starting a financial backup download on this device. It does not establish that the file was saved successfully or stored somewhere safe.
+
+**Configured transaction type**: A user-defined transaction label with its own categories and subcategories that follows an explicitly chosen existing financial behaviour. Different labels can follow the same behaviour without sharing their category lists.

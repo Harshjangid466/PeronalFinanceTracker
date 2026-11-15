@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import { useApp } from '@/context/AppContext';
 import {visibleField} from '@/data/model';
 import type { Recurring, Frequency, TransactionType } from '@/data/types';
-import { CORE_TRANSACTION_TYPES } from '@/data/types';
+import {builtinTypeId,configuredTypes,configuredType,typeOptionValue,categoriesForType} from '@/data/typeCatalog';
 import { formatCurrency, formatDate, formatDateShort, daysFromToday, todayISO } from '@/data/format';
 import { Plus, Repeat, Trash2, Check, SkipForward, Calendar, Pause, Play, Clock } from 'lucide-react';
 import { Sheet } from '@/components/Sheet';
@@ -26,6 +26,8 @@ export function RecurringScreen() {
   const [description, setDescription] = useState('');
   const [amount, setAmount] = useState('');
   const [type, setType] = useState<TransactionType>('Revenue Expense');
+  const [transactionTypeId,setTransactionTypeId]=useState(builtinTypeId('Revenue Expense'));
+  const categoryList=categoriesForType(data,type,transactionTypeId);
   const [majorCategory, setMajorCategory] = useState(data.categories[0]?.name ?? 'Bills & Utilities');
   const [subCategory, setSubCategory] = useState('');
   const [account, setAccount] = useState(data.accounts[0] ?? '');
@@ -37,7 +39,7 @@ export function RecurringScreen() {
   const [automaticPosting, setAutomaticPosting] = useState(true);
   const [remarks, setRemarks] = useState('');
 
-  const subCategories = data.categories.find((c) => c.name === majorCategory)?.subCategories ?? [];
+  const subCategories = categoryList.find((c) => c.name === majorCategory)?.subCategories ?? [];
 
   const upcoming = useMemo(
     () =>
@@ -55,7 +57,7 @@ export function RecurringScreen() {
   function resetForm() {
     setDescription('');setStatus('Scheduled');setFormError('');
     setAmount('');
-    setType('Revenue Expense');
+    setType('Revenue Expense');setTransactionTypeId(builtinTypeId('Revenue Expense'));
     setMajorCategory(data.categories[0]?.name ?? 'Bills & Utilities');
     setSubCategory('');
     setAccount(data.accounts[0] ?? '');
@@ -69,6 +71,7 @@ export function RecurringScreen() {
   }
 
   function handleAdd() {
+    if(!editing&&!configuredType(data,transactionTypeId)?.active){setFormError('Choose an active transaction type.');return;}
     const money=Number(amount);const required=data.customFields.filter(f=>f.required&&(!f.applicableTypes.length||f.applicableTypes.includes(type))&&visibleField(f,data.customFields,customValues));
     if (!description.trim() || !Number.isFinite(money)||money<=0||Math.abs(money*100-Math.round(money*100))>1e-6||!Number.isSafeInteger(Math.round(money*100))||nextDate<startDate||(endDate&&endDate<nextDate)||frequency==='Custom'&&(!Number.isInteger(Number(customIntervalDays))||Number(customIntervalDays)<1)) {setFormError('Check the description, amount, dates and interval.');return;}
     if(['Lent','Lent Recovered'].includes(type)&&!person||['Revenue Expense','CAPEX'].includes(type)&&!majorCategory||type==='To Ghar'&&!purpose||type==='Income Misc'&&!income||type==='Investment'&&!investment||required.some(f=>customValues[f.key]===undefined||customValues[f.key]===''||Array.isArray(customValues[f.key])&&!(customValues[f.key] as unknown[]).length)){setFormError('Complete the required fields for this transaction type.');return;}
@@ -76,6 +79,7 @@ export function RecurringScreen() {
       description: description.trim(),
       amount: parseFloat(amount),
       type,
+      transactionTypeId,
       majorCategory,
       subCategory,
       account,
@@ -240,7 +244,7 @@ export function RecurringScreen() {
                 </div>
 
                 <div className="flex items-center gap-1.5 shrink-0 ml-2">
-                  <button onClick={()=>{setEditing(r.id);setStatus(r.status);setDescription(r.description);setAmount(String(r.amount));setType(r.type);setMajorCategory(r.majorCategory);setSubCategory(r.subCategory);setAccount(r.account);setPaymentMode(r.paymentMode);setFrequency(r.frequency);setCustomIntervalDays(String(r.customIntervalDays||''));setStartDate(r.startDate);setNextDate(r.nextDueDate);setEndDate(r.endDate||'');setAutomaticPosting(r.automaticPosting);setRemarks(r.remarks||'');setCustomValues(r.customFields||{});setPerson(r.person||'');setMerchant(r.purchasedFrom||'');setPurpose(r.paymentFor||'');setIncome(r.incomeType||'');setInvestment(r.investmentType||'');setShowAdd(true);}}>Edit</button><span className="text-xs">{r.status}</span>
+                  <button onClick={()=>{setEditing(r.id);setStatus(r.status);setDescription(r.description);setAmount(String(r.amount));setType(r.type);setTransactionTypeId(r.transactionTypeId||builtinTypeId(r.type));setMajorCategory(r.majorCategory);setSubCategory(r.subCategory);setAccount(r.account);setPaymentMode(r.paymentMode);setFrequency(r.frequency);setCustomIntervalDays(String(r.customIntervalDays||''));setStartDate(r.startDate);setNextDate(r.nextDueDate);setEndDate(r.endDate||'');setAutomaticPosting(r.automaticPosting);setRemarks(r.remarks||'');setCustomValues(r.customFields||{});setPerson(r.person||'');setMerchant(r.purchasedFrom||'');setPurpose(r.paymentFor||'');setIncome(r.incomeType||'');setInvestment(r.investmentType||'');setShowAdd(true);}}>Edit</button><span className="text-xs">{r.status}</span>
                   <button
                     onClick={() => togglePause(r)}
                     className="p-1.5 text-slate-400 hover:text-cyan-600"
@@ -300,13 +304,13 @@ export function RecurringScreen() {
                 Type
               </label>
               <select
-                value={type}
-                onChange={(e) => setType(e.target.value as TransactionType)}
+                value={typeOptionValue(configuredType(data,transactionTypeId)!)}
+                onChange={e=>{const chosen=configuredType(data,e.target.value)!;setType(chosen.baseType!);setTransactionTypeId(chosen.id);setMajorCategory('');setSubCategory('');}}
                 className="w-full px-3 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 outline-none text-xs"
               >
-                {CORE_TRANSACTION_TYPES.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
+                {configuredTypes(data,true).filter(m=>m.active||editing&&m.id===transactionTypeId).map((t) => (
+                  <option key={t.id} value={typeOptionValue(t)}>
+                    {t.name}
                   </option>
                 ))}
               </select>
@@ -359,7 +363,7 @@ export function RecurringScreen() {
               }}
               className="w-full px-3 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 outline-none text-xs"
             >
-              {data.categories.map((c) => (
+              {categoryList.map((c) => (
                 <option key={c.name} value={c.name}>
                   {c.name}
                 </option>

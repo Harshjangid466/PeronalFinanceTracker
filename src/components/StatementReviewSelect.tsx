@@ -1,4 +1,6 @@
-import {CAPEX_CATEGORIES,type TransactionType} from '@/data/types';
+import type {TransactionType} from '@/data/types';
+import {builtinTypeId,categoriesForType,categoryMaster} from '@/data/typeCatalog';
+import {uid} from '@/data/storage';
 import {useState} from 'react';
 import {useApp} from '@/context/AppContext';
 import {masterFields} from '@/data/model';
@@ -6,16 +8,18 @@ import {inputStyle,buttonStyle} from './ConfigurationTools';
 
 const labels={majorCategory:'Category',subCategory:'Subcategory',person:'Person',account:'Account',paymentMode:'Payment mode',purchasedFrom:'Purchased from',paymentFor:'Purpose',incomeType:'Income type',investmentType:'Investment type'};
 type Field=keyof typeof labels;
-export function StatementReviewSelect({field,value,category='',transactionType,paymentMode='',onChange}:{field:Field;value:string;category?:string;transactionType?:TransactionType;paymentMode?:string;onChange:(value:string)=>void}){
+export function StatementReviewSelect({field,value,category='',transactionType='Revenue Expense',transactionTypeId=builtinTypeId(transactionType),paymentMode='',onChange}:{field:Field;value:string;category?:string;transactionType?:TransactionType;transactionTypeId?:string;paymentMode?:string;onChange:(value:string)=>void}){
  const app=useApp(),{data,allData}=app;const [adding,setAdding]=useState(false),[name,setName]=useState(''),[error,setError]=useState('');
- const lists:Record<Field,string[]>={majorCategory:transactionType==='CAPEX'?CAPEX_CATEGORIES:data.categories.map(c=>c.name),subCategory:data.categories.find(c=>c.name===category)?.subCategories||[],person:data.people,account:data.accounts,paymentMode:data.paymentModes,purchasedFrom:data.capexPurchasedFrom,paymentFor:data.toGharPaymentFor,incomeType:data.incomeTypes,investmentType:data.investmentTypes};
+ const categories=categoriesForType(data,transactionType,transactionTypeId);
+ const lists:Record<Field,string[]>={majorCategory:categories.map(c=>c.name),subCategory:categories.find(c=>c.name===category)?.subCategories||[],person:data.people,account:data.accounts,paymentMode:data.paymentModes,purchasedFrom:data.capexPurchasedFrom,paymentFor:data.toGharPaymentFor,incomeType:data.incomeTypes,investmentType:data.investmentTypes};
  const mode=data.masters?.find(m=>m.kind==='paymentMode'&&m.name===paymentMode),allowed=mode?data.sourceMappings?.[mode.id]:undefined;
  const list=field==='account'&&allowed?.length?lists.account.filter(name=>allowed.includes(data.masters?.find(m=>m.kind==='source'&&m.name===name)?.id||'')):lists[field];
  const options=[...new Set([...(value?[value]:[]),...list])],disabled=field==='subCategory'&&!category;
  function add(){try{
   const trimmed=name.trim();if(!trimmed)throw Error('Enter a name.');
+  if(field==='majorCategory'||field==='subCategory'){const item=categoryMaster(allData,transactionType,transactionTypeId,field,trimmed,category,uid(),Date.now());if(!allData.masters?.some(m=>m.id===item.id))app.manageMaster(item);onChange(item.name);setAdding(false);setName('');setError('');return;}
   const parent=allData.masters?.find(m=>m.kind==='category'&&m.name===category)?.id;
-  if(allData.masters?.some(m=>m.kind===masterFields[field]&&m.name.toLowerCase()===trimmed.toLowerCase()&&!m.active&&(field!=='subCategory'||m.parentId===parent)))throw Error('This value is inactive. Enable it in Settings first.');
+  if(allData.masters?.some(m=>m.kind===masterFields[field]&&m.name.toLowerCase()===trimmed.toLowerCase()&&!m.active))throw Error('This value is inactive. Enable it in Settings first.');
   const selected=lists[field].find(n=>n.toLowerCase()===trimmed.toLowerCase())||trimmed;
   if(!lists[field].includes(selected)){
    const adders:Record<Field,(name:string)=>void>={majorCategory:app.addCategory,subCategory:n=>app.addSubCategory(category,n),person:app.addPerson,account:app.addAccount,paymentMode:app.addPaymentMode,purchasedFrom:app.addCapexPurchasedFrom,paymentFor:app.addToGharPaymentFor,incomeType:app.addIncomeType,investmentType:app.addInvestmentType};
