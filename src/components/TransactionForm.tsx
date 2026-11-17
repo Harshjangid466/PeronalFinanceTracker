@@ -118,6 +118,7 @@ export function TransactionForm({
     return suggestion&&!categoryUnavailable(data,suggestion)?resolveSuggestion(suggestion,data.categories):undefined;
   },[heading,purchasedFrom,remarks,type,transactionTypeId,data.importHabits,data.transactions,data.categories,data.masters,editTransaction?.id]);
   const [saved, setSaved] = useState(false);
+  const [saveError,setSaveError]=useState('');
   const [possibleDuplicate, setPossibleDuplicate] = useState<Transaction | null>(null);
 
   // Quick Add modal for dropdown values
@@ -282,7 +283,8 @@ export function TransactionForm({
 
   function handleSubmit() {
     if (!isValid || saved) return;
-    guard.clear();clearSheetDraft();
+    setSaveError('');
+    try {
 
     const amt = (parseFloat(amount) || 0)*(type==='Revenue Expense'&&expenseCredit?-1:1);
     const txnPayload: Partial<Transaction> & { amount: number; type: TransactionType } = {
@@ -305,11 +307,13 @@ export function TransactionForm({
       customFields: customFieldValues,
     };
 
+    if(rememberPayee&&!expenseCredit&&transactionTypeId===builtinTypeId('Revenue Expense')&&type==='Revenue Expense'&&heading.trim()&&majorCategory)configure({importHabits:rememberMerchant(data.importHabits||defaultImportHabits(),heading,majorCategory,subCategory)});
     let resultTxn: Transaction;
 
     if (isEdit && editTransaction) {
       const updated = updateTransaction(editTransaction.id, txnPayload);
-      resultTxn = updated || editTransaction;
+      if(!updated)throw Error('This entry is no longer available. Keep these details and check transaction history.');
+      resultTxn = updated;
     } else {
       resultTxn = addTransaction(txnPayload);
 
@@ -322,7 +326,7 @@ export function TransactionForm({
       }, 500);
     }
 
-    if(rememberPayee&&!expenseCredit&&transactionTypeId===builtinTypeId('Revenue Expense')&&type==='Revenue Expense'&&heading.trim()&&majorCategory)configure({importHabits:rememberMerchant(data.importHabits||defaultImportHabits(),heading,majorCategory,subCategory)});
+    guard.clear();clearSheetDraft();
     setSaved(true);
     setTimeout(() => {
       setSaved(false);
@@ -337,6 +341,7 @@ export function TransactionForm({
         setRemarks('');
       }
     }, 600);
+    } catch(error) {setSaveError(error instanceof Error?error.message:'This entry was not saved. Keep the form open and try again.');}
   }
 
   function handleSaveAsFrequent() {
@@ -373,37 +378,14 @@ export function TransactionForm({
   }
 
   return (
-    <div onChangeCapture={guard.mark} className={`space-y-4 ${isModal ? 'p-1' : 'px-4 pt-4 pb-24 max-w-md mx-auto'}`}>
+    <div onChangeCapture={guard.mark} className={`transaction-form space-y-4 ${isModal ? 'p-1' : 'max-w-xl mx-auto'}`}>
       {/* Transaction Type Selector Bar (if in Add screen or editing) */}
-      <div className="flex items-center justify-between pb-1">
-        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
-          {typeDefinitions.filter(m=>m.active||isEdit&&m.id===transactionTypeId).map((m) => (
-            <button
-              key={m.id}
-              type="button"
-              disabled={expenseCreditOnly&&m.baseType!=='Revenue Expense'}
-              onClick={() => {
-                if(m.id===transactionTypeId)return;guard.mark();setType(m.baseType!);setTransactionTypeId(m.id);setMajorCategory('');setSubCategory('');setPerson('');setPurchasedFrom('');setPaymentFor('');setIncomeType('');setInvestmentType('');setCustomFieldValues({});setExpenseCredit(expenseCreditOnly);setRememberPayee(false);
-              }}
-              className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
-                transactionTypeId === m.id
-                  ? 'bg-cyan-600 text-white shadow-sm shadow-cyan-600/30'
-                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
-              }`}
-            >
-              {m.name}
-            </button>
-          ))}
-        </div>
-        {onClose && (
-          <button
-            onClick={()=>requestNavigation(()=>onClose?.())}
-            className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg ml-2 shrink-0"
-          >
-            <X size={20} />
-          </button>
-        )}
-      </div>
+      <label className="entry-type-label">Transaction type
+        <select aria-label="Entry transaction type" value={transactionTypeId} disabled={expenseCreditOnly} onChange={e=>{
+          const m=typeDefinitions.find(t=>t.id===e.target.value);if(!m||m.id===transactionTypeId)return;
+          guard.mark();setType(m.baseType!);setTransactionTypeId(m.id);setMajorCategory('');setSubCategory('');setPerson('');setPurchasedFrom('');setPaymentFor('');setIncomeType('');setInvestmentType('');setCustomFieldValues({});setExpenseCredit(expenseCreditOnly);setRememberPayee(false);
+        }}>{typeDefinitions.filter(m=>m.active||isEdit&&m.id===transactionTypeId).map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select>
+      </label>
 
       {/* Possible Duplicate Warning (Section AA) */}
       {possibleDuplicate && (
@@ -418,10 +400,7 @@ export function TransactionForm({
 
       {/* Quick Amount Bar (Section C & Home '+' requirement) */}
       {quickAmounts.length > 0 && (
-        <div>
-          <div className="flex items-center justify-between mb-1.5">
-            <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Quick Amounts</span>
-          </div>
+        <details className="entry-shortcuts"><summary>Quick amounts</summary>
           <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
             {quickAmounts.map((amt) => (
               <button
@@ -438,7 +417,7 @@ export function TransactionForm({
               </button>
             ))}
           </div>
-        </div>
+        </details>
       )}
 
       {type==='Revenue Expense'&&<label className="block text-sm">Expense entry<select aria-label="Expense entry direction" disabled={expenseCreditOnly} className="w-full p-3 rounded-xl bg-slate-100 dark:bg-slate-800" value={expenseCredit?'credit':'debit'} onChange={e=>setExpenseCredit(e.target.value==='credit')}><option value="debit">Expense paid</option><option value="credit">Reimbursement / refund (reduces spending)</option></select></label>}
@@ -450,6 +429,7 @@ export function TransactionForm({
         <div className="relative">
           <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-2xl font-bold text-slate-400">₹</span>
           <input
+            aria-label="Amount in rupees"
             type="number"
             inputMode="decimal"
             value={amount}
@@ -467,6 +447,7 @@ export function TransactionForm({
           Date *
         </label>
         <input
+          aria-label="Transaction date"
           type="date"
           value={date}
           onChange={(e) => setDate(e.target.value)}
@@ -475,6 +456,7 @@ export function TransactionForm({
       </div>
 
       <div>
+
         <label htmlFor="transaction-heading" className="text-xs font-semibold text-slate-600 dark:text-slate-400 block mb-1">Payee / merchant / heading (optional)</label>
         <input id="transaction-heading" type="text" value={heading} onChange={(e) => setHeading(e.target.value)}
           className="w-full px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700" />
@@ -507,7 +489,7 @@ export function TransactionForm({
               </button>
             </div>
             <select
-              value={person}
+              aria-label="Person" value={person}
               onChange={(e) => setPerson(e.target.value)}
               className="w-full px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-cyan-500 text-sm"
             >
@@ -542,7 +524,7 @@ export function TransactionForm({
               </button>
             </div>
             <select
-              value={person}
+              aria-label="Person" value={person}
               onChange={(e) => setPerson(e.target.value)}
               className="w-full px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-cyan-500 text-sm"
             >
@@ -577,7 +559,7 @@ export function TransactionForm({
               </button>
             </div>
             <select
-              value={purchasedFrom}
+              aria-label="Purchase merchant" value={purchasedFrom}
               onChange={(e) => setPurchasedFrom(e.target.value)}
               className="w-full px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-cyan-500 text-sm"
             >
@@ -609,7 +591,7 @@ export function TransactionForm({
               </button>
             </div>
             <select
-              value={paymentFor}
+              aria-label="Household purpose" value={paymentFor}
               onChange={(e) => setPaymentFor(e.target.value)}
               className="w-full px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-cyan-500 text-sm"
             >
@@ -641,7 +623,7 @@ export function TransactionForm({
               </button>
             </div>
             <select
-              value={incomeType}
+              aria-label="Income type" value={incomeType}
               onChange={(e) => setIncomeType(e.target.value)}
               className="w-full px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-cyan-500 text-sm"
             >
@@ -673,7 +655,7 @@ export function TransactionForm({
               </button>
             </div>
             <select
-              value={investmentType}
+              aria-label="Investment type" value={investmentType}
               onChange={(e) => setInvestmentType(e.target.value)}
               className="w-full px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-cyan-500 text-sm"
             >
@@ -697,14 +679,14 @@ export function TransactionForm({
             </label>
             <button
               type="button"
-              onClick={() => openAddOption('paymentMode', 'Payment Mode')}
+              aria-label="Add payment method" onClick={() => openAddOption('paymentMode', 'Payment Mode')}
               className="text-[11px] text-cyan-600 dark:text-cyan-400 flex items-center font-medium"
             >
               <Plus size={12} />
             </button>
           </div>
           <select
-            value={paymentMode}
+            aria-label="Entry payment method" value={paymentMode}
             onChange={(e) => {manualMode.current=true;setPaymentMode(e.target.value);}}
             className="w-full px-3 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-cyan-500 text-sm"
           >
@@ -723,14 +705,14 @@ export function TransactionForm({
             </label>
             <button
               type="button"
-              onClick={() => openAddOption('account', 'Source / Account')}
+              aria-label="Add account" onClick={() => openAddOption('account', 'Source / Account')}
               className="text-[11px] text-cyan-600 dark:text-cyan-400 flex items-center font-medium"
             >
               <Plus size={12} />
             </button>
           </div>
           <select
-            value={account}
+            aria-label="Entry account" value={account}
             onChange={(e) => {manualSource.current=true;setAccount(e.target.value);}}
             className="w-full px-3 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-cyan-500 text-sm"
           >
@@ -747,18 +729,20 @@ export function TransactionForm({
       <DynamicFields fields={(data.customFields||[]).filter(f=>!f.applicableTypes.length||f.applicableTypes.includes(type))} values={customFieldValues} onChange={handleCustomFieldChange}/>
 
       {/* Remarks (Section N: Unlimited text, multiline textarea) */}
-      <div>
+      <details className="entry-notes" open={!!editTransaction?.remarks||!!prefill?.remarks}>
+        <summary>Notes & references <span>Optional</span></summary>
         <label className="text-xs font-semibold text-slate-600 dark:text-slate-400 block mb-1">
           Remarks (optional)
         </label>
         <textarea
+          aria-label="Remarks"
           value={remarks}
           onChange={(e) => setRemarks(e.target.value)}
           rows={2}
           placeholder="Add notes, details, reference numbers..."
           className="w-full px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-cyan-500 text-sm"
         />
-      </div>
+      </details>
 
       {/* Frequent Transaction Suggestion (Section P) */}
       {frequentSuggestion && (
@@ -791,6 +775,7 @@ export function TransactionForm({
 
       {/* Submit / Action Buttons */}
       <div className="pt-2 space-y-2">
+        {saveError&&<p className="entry-save-error" role="alert">{saveError}</p>}
         <button
           type="button"
           onClick={handleSubmit}
@@ -799,24 +784,24 @@ export function TransactionForm({
         >
           {saved ? (
             <>
-              <Check size={20} /> {isEdit ? 'Updated!' : 'Saved!'}
+              <Check size={20} /> Saved on this device
             </>
           ) : isEdit ? (
             'Save Changes'
           ) : (
-            'POST / SAVE'
+            'Save transaction'
           )}
         </button>
 
-        {!isEdit && (
+        {!isEdit && (<details className="entry-template"><summary>Use these details again</summary>
           <button
             type="button"
             onClick={handleSaveAsFrequent}
             disabled={!isValid || saved}
             className="w-full py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-medium text-xs active:scale-[0.98] transition-transform border border-slate-200 dark:border-slate-700 disabled:opacity-40"
           >
-            Save as Frequent Template
-          </button>
+            Save as a reusable template
+          </button></details>
         )}
       </div>
 

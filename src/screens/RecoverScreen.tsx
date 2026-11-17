@@ -50,12 +50,12 @@ export function RecoverScreen() {
   }, [allLedgers, search, filterTab]);
 
   return (
-    <div className="px-4 pt-6 pb-28 max-w-md mx-auto space-y-4">
+    <div className="people-screen px-4 pt-6 pb-28 max-w-4xl mx-auto space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Receivables</h1>
-          <p className="text-xs text-slate-500 dark:text-slate-400">Unified Person-wise Ledgers</p>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">People & balances</h1>
+          <p className="text-xs text-slate-500 dark:text-slate-400">See who owes you and who you owe.</p>
         </div>
 
         <div className="flex items-center gap-1.5">
@@ -105,12 +105,12 @@ export function RecoverScreen() {
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search person..."
+            aria-label="Search people" placeholder="Search people"
             className="w-full pl-9 pr-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-700 outline-none focus:ring-2 focus:ring-cyan-500 text-xs"
           />
         </div>
 
-        <div className="flex items-center gap-1 overflow-x-auto no-scrollbar pb-0.5">
+        <div role="group" aria-label="People balance filters" className="flex items-center gap-1 overflow-x-auto no-scrollbar pb-0.5">
           {[
             { id: 'all', label: `All (${allLedgers.length})` },
             { id: 'owes_me', label: `Owes Me (${allLedgers.filter((l) => l.netBalance > 0).length})` },
@@ -119,6 +119,7 @@ export function RecoverScreen() {
           ].map((tab) => (
             <button
               key={tab.id}
+              aria-pressed={filterTab===tab.id}
               onClick={() => setFilterTab(tab.id as any)}
               className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-colors ${
                 filterTab === tab.id

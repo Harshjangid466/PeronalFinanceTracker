@@ -18,7 +18,7 @@ import {ReimbursementTracker} from '@/components/ReimbursementTracker';
 import {entrySource,entrySourceLabels} from '@/data/entryManagement';
 const StatementWorkspace=lazy(()=>import('@/components/StatementWorkspace').then(m=>({default:m.StatementWorkspace})));
 
-export function TransactionsScreen({active=true,sharedLaunch}:{active?:boolean;sharedLaunch?:SharedPdfLaunch}) {
+export function TransactionsScreen({active=true,sharedLaunch,importRequest=0}:{active?:boolean;sharedLaunch?:SharedPdfLaunch;importRequest?:number}) {
   const { data,allData, deleteTransaction, deletedTransactions, restoreTransaction,permanentlyDeleteTransaction } = useApp();
   const [visibleCount,setVisibleCount]=useState(100);
   const [showDeleted,setShowDeleted]=useState(false);
@@ -26,6 +26,7 @@ export function TransactionsScreen({active=true,sharedLaunch}:{active?:boolean;s
   const [importsSeen,setImportsSeen]=useState(!!sharedLaunch);
   const historyActive=active&&view==='history';
   function switchView(next:'history'|'imports'){if(next==='imports')setImportsSeen(true);setView(next);}
+  useEffect(()=>{if(importRequest){setImportsSeen(true);setView('imports');}},[importRequest]);
   const [showTools,setShowTools]=useState(false);
   const [selected,setSelected]=useState<Transaction|null>(null);
   const [showAlerts,setShowAlerts]=useState(false);
@@ -113,7 +114,7 @@ export function TransactionsScreen({active=true,sharedLaunch}:{active?:boolean;s
   }, [filtered]);
 
   return (
-    <div className="px-4 pt-6 pb-28 max-w-6xl mx-auto print:max-w-none print:p-0">
+    <div className="transactions-screen px-4 pt-6 pb-28 max-w-6xl mx-auto print:max-w-none print:p-0">
       <div className="flex items-center justify-between mb-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">{view==='history'?'Transactions':'Imports & review'}</h1>
@@ -135,6 +136,7 @@ export function TransactionsScreen({active=true,sharedLaunch}:{active?:boolean;s
           <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
             type="text"
+            aria-label="Search transactions"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search transactions"
@@ -142,6 +144,7 @@ export function TransactionsScreen({active=true,sharedLaunch}:{active?:boolean;s
           />
           {search && (
             <button
+              aria-label="Clear transaction search"
               onClick={() => setSearch('')}
               className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
             >

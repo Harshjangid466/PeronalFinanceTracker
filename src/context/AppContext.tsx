@@ -205,13 +205,15 @@ export function useApp(): AppContextValue {
 export function AppProvider({ children }: { children: ReactNode }) {
   const [allData, storeData] = useState<AppData>(() => loadData());
   const latestData=useRef(allData);
-  function setStoredData(update:AppData|((prev:AppData)=>AppData)) {
+  function setStoredData(update:AppData|((prev:AppData)=>AppData), persist=true) {
     const next=typeof update==='function'?update(latestData.current):update;
+    // A save must reach storage before callers can clear a form or show success.
+    if(persist)saveData(next,true);
     latestData.current=next;storeData(next);
   }
   const [statementReady,setStatementReady]=useState(false);
   const [statementError,setStatementError]=useState('');
-  useEffect(()=>{let cancelled=false;loadStatementArchive().then(archive=>{if(cancelled)return;setStoredData(prev=>migrateData(applyRemovalTombstones({...prev,statementRows:mergeStatementRows(archive.rows,prev.statementRows||[]),statementBatches:[...new Map([...archive.batches,...(prev.statementBatches||[])].map(b=>[b.id,b])).values()]})));setStatementReady(true);}).catch(()=>{if(!cancelled)setStatementError('Statement history could not be opened. Import is disabled; existing financial entries are retained.');});return()=>{cancelled=true;};},[]);
+  useEffect(()=>{let cancelled=false;loadStatementArchive().then(archive=>{if(cancelled)return;setStoredData(prev=>migrateData(applyRemovalTombstones({...prev,statementRows:mergeStatementRows(archive.rows,prev.statementRows||[]),statementBatches:[...new Map([...archive.batches,...(prev.statementBatches||[])].map(b=>[b.id,b])).values()]})),false);setStatementReady(true);}).catch(()=>{if(!cancelled)setStatementError('Statement history could not be opened. Import is disabled; existing financial entries are retained.');});return()=>{cancelled=true;};},[]);
   const bankCapture=useBankCapture(alerts=>setStoredData(prev=>auditChanges(prev,migrateData({...prev,bankAlerts:mergeCaptured(prev.bankAlerts||[],alerts)}))));
   const data = useMemo(()=>({...allData,transactions:allData.transactions.filter(t=>t.status==='active')}),[allData]);
   function setData(update: AppData | ((prev:AppData)=>AppData)) {
@@ -375,18 +377,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }
   function importTransactions(rows:Partial<Transaction>[],fileName?:string) {
     const now=Date.now();
-    setData(prev=>({...prev,transactions:[...rows.map(row=>({...row,id:uid(),entrySource:{kind:'excel-csv' as const,fileName},schemaVersion:4,type:row.type!,amount:row.amount!,amountMinor:Math.round(row.amount!*100),currency:'INR' as const,date:row.date!,createdAt:now,updatedAt:now,majorCategory:row.majorCategory||'',subCategory:row.subCategory||'',account:row.account||'',paymentMode:row.paymentMode||'',person:row.person||'',remarks:row.remarks||'',customFields:row.customFields||{},financialEffect:financialEffect(row.type!,Math.round(row.amount!*100)),status:'active' as const})),...prev.transactions]}));
-    logAction('import','transactions',`Imported ${rows.length} transactions`); return rows.length;
+    setData(prev=>({...prev,actionLog:[...prev.actionLog,{id:uid(),timestamp:now,actionType:'import',entityType:'transactions',entityId:'transactions',description:`Imported ${rows.length} transactions`}],transactions:[...rows.map(row=>({...row,id:uid(),entrySource:{kind:'excel-csv' as const,fileName},schemaVersion:4,type:row.type!,amount:row.amount!,amountMinor:Math.round(row.amount!*100),currency:'INR' as const,date:row.date!,createdAt:now,updatedAt:now,majorCategory:row.majorCategory||'',subCategory:row.subCategory||'',account:row.account||'',paymentMode:row.paymentMode||'',person:row.person||'',remarks:row.remarks||'',customFields:row.customFields||{},financialEffect:financialEffect(row.type!,Math.round(row.amount!*100)),status:'active' as const})),...prev.transactions]}));
+    return rows.length;
   }
 
   useEffect(() => {
-    saveData(allData);
     if(statementReady)saveStatementArchive(allData.statementRows||[],allData.statementBatches||[]).catch(()=>{setStatementError('Statement history could not be saved. Download a backup before closing the app.');window.dispatchEvent(new CustomEvent('finance-storage-error',{detail:'Statement history could not be saved. Download a backup before closing.'}));});
   }, [allData,statementReady]);
 
   const [recurringDay,setRecurringDay]=useState(todayISO);
   useEffect(()=>{const refresh=()=>setRecurringDay(todayISO());const timer=setInterval(refresh,60000);window.addEventListener('focus',refresh);document.addEventListener('visibilitychange',refresh);return()=>{clearInterval(timer);window.removeEventListener('focus',refresh);document.removeEventListener('visibilitychange',refresh);};},[]);
-  useEffect(()=>{if(allData.recurring.some(r=>recurringIsDue(r,recurringDay)))setData(prev=>processRecurringDue(prev,recurringDay,postRecurringInData));},[allData.recurring,recurringDay]);
+  useEffect(()=>{try{if(allData.recurring.some(r=>recurringIsDue(r,recurringDay)))setData(prev=>processRecurringDue(prev,recurringDay,postRecurringInData));}catch{/* Storage failure is shown by the persistent save warning. */}},[allData.recurring,recurringDay]);
   function computeNextDue(r:Recurring):string{return nextRecurringDate(r);}
 
   function postRecurringInData(prev: AppData, id: string): AppData {
@@ -1049,7 +1050,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   function exportBackup(): string {
     if(!statementReady&&!statementError)throw Error('Wait for statement history to finish opening before downloading a backup.');
     const complete=statementReady&&!statementError,snapshot=latestData.current;
-    logAction('backup','backup',complete?'Requested complete backup download':'Requested partial recovery backup; statement history unavailable');
+    // Recovery must still work when storage cannot accept even an audit entry.
+    try{logAction('backup','backup',complete?'Requested complete backup download':'Requested partial recovery backup; statement history unavailable');}catch{/* Export the intact in-memory snapshot below. */}
     const backupObj = {
       backupFormatVersion: 4,
       appVersion: '4.0.0',
@@ -1064,7 +1066,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       const restored=mergeBackup(allData,jsonContent);
       const count=restored.transactions.length-allData.transactions.length;
-      setData(restored); logAction('restore','backup',`Merged backup: ${count} added transactions, configuration and history preserved`);
+      setData({...restored,actionLog:[...restored.actionLog,{id:uid(),timestamp:Date.now(),actionType:'restore',entityType:'backup',entityId:'backup',description:`Merged backup: ${count} added transactions, configuration and history preserved`}]});
       return {success:true,message:`Backup merged. Added ${count} transactions; existing records were retained.`,count};
     } catch(error) {return {success:false,message:error instanceof Error?error.message:'Invalid backup'};}
   }

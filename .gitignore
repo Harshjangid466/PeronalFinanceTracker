@@ -30,6 +30,7 @@ public/ocr
 
 # Local-only records, tooling state and generated review artifacts
 artifacts/
+.superpowers/
 .codex/
 *.pdf
 *.xlsx

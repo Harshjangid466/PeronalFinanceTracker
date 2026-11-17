@@ -18,11 +18,11 @@ export function AddExpenseScreen() {
   }
 
   return (
-    <div className="px-4 pt-6 pb-24 max-w-md mx-auto">
+    <div className="entry-screen px-4 pt-6 pb-28 max-w-2xl mx-auto">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Quick Entry</h1>
-          <p className="text-xs text-slate-500 dark:text-slate-400">Review, adjust and POST</p>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Add transaction</h1>
+          <p className="text-sm text-slate-500 dark:text-slate-400">Enter the details. Save them on this device.</p>
         </div>
 
         {frequentTransactions.length > 0 && (
@@ -55,7 +55,7 @@ export function AddExpenseScreen() {
 
       <FrequentSuggestions />
       {/* Primary Form */}
-      <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-100 dark:border-slate-800 shadow-sm">
+      <div className="entry-paper bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-100 dark:border-slate-800">
         <TransactionForm
           key={selectedFrequent ? selectedFrequent.id : 'default-form'}
           initialType={selectedFrequent ? selectedFrequent.type : 'Revenue Expense'}

@@ -5,11 +5,11 @@ const tabs = [
   { id: 'home', label: 'Home', icon: Home },
   { id: 'transactions', label: 'Transactions', icon: ListPlus },
   { id: 'add', label: 'Add', icon: Plus },
-  { id: 'recover', label: 'Recover', icon: Users },
+  { id: 'recover', label: 'People', icon: Users },
   { id: 'settings', label: 'Settings', icon: Settings },
 ] as const;
 export function BottomNav({ active, onChange }: NavProps) {
-  return <nav className="app-navigation" aria-label="Main navigation"><div>
+  return <nav className="app-navigation" aria-label="Main navigation"><span className="navigation-brand">Finance<span>Your personal ledger</span></span><div>
     {tabs.map(({id,label,icon:Icon}) => <button key={id} onClick={()=>onChange(id)} aria-current={active===id?'page':undefined} className={id==='add'?'navigation-add':undefined}>
       <span className="navigation-icon"><Icon size={22} aria-hidden="true"/></span><span>{label}</span>
     </button>)}

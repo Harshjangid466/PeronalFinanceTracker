@@ -9,6 +9,7 @@ import { MastersManager, MappingManager, RulesManager, AuditViewer, ExtendedFiel
 import { RecurringScreen } from './RecurringScreen';
 import {SettingsDirectory, type SettingsSection} from '@/components/SettingsDirectory';
 import {BackupHealth} from '@/components/BackupHealth';
+import {LocalRecovery} from '@/components/LocalRecovery';
 import {requestBackupDownload} from '@/data/backupHealth';
 import {builtinTypeId,categoriesForType,configuredTypes} from '@/data/typeCatalog';
 
@@ -61,7 +62,7 @@ export function SettingsScreen() {
 
   return (
     <div>
-      <SettingsDirectory theme={theme} onTheme={choice=>{setTheme(choice);updateTheme(choice);}} onOpen={setSection} counts={{accounts:data.accounts.length,people:data.people.length,paymentModes:data.paymentModes.length,categories:data.categories.length,transactionTypes:configuredTypes(data).length,capexCategories:categoriesForType(data,'CAPEX').length,rules:data.rules.length,quickAmounts:quickAmounts.length,customFields:customFields.length,recurring:data.recurring.length}} />
+      <SettingsDirectory isNew={!data.transactions.length} theme={theme} onTheme={choice=>{setTheme(choice);updateTheme(choice);}} onOpen={setSection} counts={{accounts:data.accounts.length,people:data.people.length,paymentModes:data.paymentModes.length,categories:data.categories.length,transactionTypes:configuredTypes(data).length,capexCategories:categoriesForType(data,'CAPEX').length,rules:data.rules.length,quickAmounts:quickAmounts.length,customFields:customFields.length,recurring:data.recurring.length}} />
       <div className="settings-editor">
       <Sheet wide open={section==='transactionTypes'} onClose={()=>setSection(null)} title="Transaction types & categories"><MastersManager kind="transactionType"/></Sheet>
       <Sheet wide open={section==='capexCategories'} onClose={()=>setSection(null)} title="CAPEX categories"><MastersManager kind="typeCategory" parentId={builtinTypeId('CAPEX')}/></Sheet>
@@ -139,6 +140,7 @@ export function SettingsScreen() {
       <Sheet wide open={section === 'backupRestore'} onClose={() => setSection(null)} title="Backup & Restore">
         <div className="space-y-4">
           <BackupHealth/>
+          <LocalRecovery/>
           <p className="text-xs text-slate-500 dark:text-slate-400">
             Export your entire financial dataset including all transactions, custom fields, dropdowns, and configurations to a standard versioned JSON file.
           </p>

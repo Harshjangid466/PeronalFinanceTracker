@@ -1,0 +1,23 @@
+.personal-analysis-intro{max-width:70ch;font-size:13px;line-height:1.8;color:var(--muted);margin:12px 0 24px}
+.personal-analysis-mobile-hint{display:none}
+.personal-analysis-table{overflow-x:auto;margin:18px 0;max-width:100%}
+.personal-analysis table{border-collapse:collapse;width:100%;font-size:12px;min-width:520px;font-variant-numeric:tabular-nums}
+.personal-analysis caption{text-align:left;font-size:14px;font-weight:600;padding:0 0 14px}
+.personal-analysis th,.personal-analysis td{padding:14px 12px;border-bottom:1px solid var(--line);text-align:right;vertical-align:top}
+.personal-analysis th:first-child{text-align:left;padding-left:0}
+.personal-analysis thead th{font-size:11px;font-weight:500;color:var(--muted)}
+.personal-analysis td small,.personal-analysis-candidates small{display:block;font-size:11px;color:var(--muted);margin-top:6px;line-height:1.6}
+.personal-analysis-assumptions{display:grid;grid-template-columns:1fr 1fr;gap:28px;margin:24px 0 12px}
+.personal-analysis-assumptions label{display:flex;flex-direction:column;gap:10px;font-size:12px;min-width:0}
+.personal-analysis-assumptions input:not([type=range]){padding:11px;border:1px solid var(--line);border-radius:7px;background:var(--surface);color:inherit;width:100%;min-width:0}
+.personal-analysis-assumptions input[type=range]{accent-color:#0891b2;width:100%;margin:12px 0}
+.personal-analysis-assumptions small{color:var(--muted);font-size:11px;line-height:1.7}
+.personal-analysis .personal-analysis-warning{color:#b45309;font-size:12px;line-height:1.7}
+.dark .personal-analysis .personal-analysis-warning{color:#fbbf24}
+.personal-analysis-recurring{margin-top:32px;padding-top:24px;border-top:1px solid var(--line)}
+.personal-analysis-candidates>button{display:flex;justify-content:space-between;align-items:start;gap:20px;text-align:left;padding:20px 0;border-bottom:1px solid var(--line);width:100%;font-size:13px}
+.personal-analysis-candidates>button>span{min-width:0;overflow-wrap:anywhere}
+.personal-analysis-candidates>button>span:last-child{text-align:right;flex-shrink:0}
+.personal-analysis button:disabled{opacity:.5;cursor:default}
+.personal-analysis :focus-visible{outline:2px solid #0891b2;outline-offset:3px}
+@media(max-width:700px){.personal-analysis-mobile-hint{display:block;margin-top:8px;font-size:11px}.personal-analysis-assumptions{grid-template-columns:minmax(0,1fr);gap:20px}.personal-analysis-candidates>button{flex-direction:column;gap:12px}.personal-analysis-candidates>button>span:last-child{text-align:left}.personal-analysis-table{margin-right:-4px}.personal-analysis td,.personal-analysis th{padding:12px 9px}}

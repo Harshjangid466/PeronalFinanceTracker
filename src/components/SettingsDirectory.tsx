@@ -40,22 +40,25 @@ export const settingsGroups = [
 
 export type SettingsSection = typeof settingsGroups[number]['items'][number]['id'];
 
-export function SettingsDirectory({onOpen,counts,theme,onTheme}:{onOpen:(id:SettingsSection)=>void;counts:Partial<Record<SettingsSection,number>>;theme:'light'|'dark';onTheme:(theme:'light'|'dark')=>void}) {
+export function SettingsDirectory({onOpen,counts,theme,onTheme,isNew=false}:{onOpen:(id:SettingsSection)=>void;counts:Partial<Record<SettingsSection,number>>;theme:'light'|'dark';onTheme:(theme:'light'|'dark')=>void;isNew?:boolean}) {
   const [query,setQuery]=useState('');
   const [group,setGroup]=useState('all');
+  const [showAll,setShowAll]=useState(!isNew);
   const normalized=query.trim().toLowerCase();
-  const groups=settingsGroups.map(g=>({...g,items:g.items.filter(item=>(group==='all'||group===g.id)&&(!normalized||`${g.title} ${item.label} ${item.description} ${item.keywords}`.toLowerCase().includes(normalized)))})).filter(g=>g.items.length);
+  const basic=showAll||!!normalized||group!=='all';
+  const groups=settingsGroups.map(g=>({...g,items:g.items.filter(item=>(basic||['accounts','categories','backupRestore'].includes(item.id))&&(group==='all'||group===g.id)&&(!normalized||`${g.title} ${item.label} ${item.description} ${item.keywords}`.toLowerCase().includes(normalized)))})).filter(g=>g.items.length);
   return <div className="settings-workspace">
-    <header className="settings-heading"><div><h1>Settings</h1><p>Set up your money, then let your habits do the work.</p></div><span className="settings-local"><Database size={15}/>Local storage</span></header>
+    <header className="settings-heading"><div><h1>Settings</h1><p>{isNew?'Start with the essentials. Personalize the rest when you need it.':'Your accounts, preferences and data, in one place.'}</p></div><span className="settings-local"><Database size={15}/>This device</span></header>
+    {isNew&&!showAll&&<div className="setup-intro"><h2>Just three places to start</h2><p>Add an account, use the existing categories, or restore a backup. Rules and extra fields can wait.</p><button onClick={()=>setShowAll(true)}>Show all settings</button></div>}
     <div className="settings-search"><Search size={20}/><input type="search" aria-label="Search settings" placeholder="Find categories, habits, accounts…" value={query} onChange={e=>setQuery(e.target.value)}/>{query&&<button aria-label="Clear settings search" onClick={()=>setQuery('')}><X size={18}/></button>}</div>
     <div className="settings-layout">
-      <aside className="settings-sidebar"><nav aria-label="Settings groups"><button aria-pressed={group==='all'} onClick={()=>setGroup('all')}>All settings</button>{settingsGroups.map(g=><button key={g.id} aria-pressed={group===g.id} onClick={()=>setGroup(g.id)}><g.icon size={18}/>{g.title}</button>)}</nav>
+      <aside className="settings-sidebar"><nav aria-label="Settings groups"><button aria-pressed={group==='all'} onClick={()=>{setGroup('all');setShowAll(true);}}>All settings</button>{(basic?settingsGroups:[]).map(g=><button key={g.id} aria-pressed={group===g.id} onClick={()=>setGroup(g.id)}><g.icon size={18}/>{g.title}</button>)}</nav>
         <div className="settings-appearance"><h2>Appearance</h2><div role="group" aria-label="Theme">{(['light','dark'] as const).map(t=><button key={t} aria-pressed={theme===t} onClick={()=>onTheme(t)}>{t==='light'?'Light':'Dark'}</button>)}</div></div>
       </aside>
       <main className="settings-directory" aria-label="Settings directory">
         {groups.map(g=><section key={g.id} aria-labelledby={`settings-${g.id}`}><div className="settings-group-heading"><g.icon size={21}/><div><h2 id={`settings-${g.id}`}>{g.title}</h2><p>{g.description}</p></div></div><div className="settings-group-items">{g.items.map(item=><button key={item.id} onClick={()=>onOpen(item.id)}><span><strong>{item.label}</strong><small>{item.description}</small></span><span className="settings-row-end">{counts[item.id]!==undefined&&<span className="settings-count">{counts[item.id]}</span>}<ChevronRight size={18}/></span></button>)}</div></section>)}
         {!groups.length&&<div className="settings-empty"><h2>No settings found</h2><p>Try “categories”, “vendor” or “backup”.</p><button onClick={()=>{setQuery('');setGroup('all');}}>Show all settings</button></div>}
-        <footer className="settings-storage-note"><Database size={20}/><div><strong>Your ledger is saved in this browser.</strong><p>Cloud sync is not connected. Keep a manual backup before clearing browser data or changing devices.</p><button onClick={()=>onOpen('backupRestore')}>Open backup & restore</button></div></footer>
+        <footer className="settings-storage-note"><Database size={20}/><div><strong>Your ledger belongs to this browser or installed app.</strong><p>On iPhone, Safari and the Home Screen app have separate records. Download a backup from the version with your data before moving between them, clearing website data or changing devices.</p><button onClick={()=>onOpen('backupRestore')}>Open backup & restore</button></div></footer>
       </main>
     </div>
   </div>;

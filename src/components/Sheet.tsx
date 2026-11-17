@@ -14,6 +14,13 @@ export function Sheet({ open, onClose, title, children,wide=false }: SheetProps)
   const [visible, setVisible] = useState(open);
   const id=useRef('sheet_'+Math.random().toString(36).slice(2));
   const closeRef=useRef(onClose);closeRef.current=onClose;
+  const dialogRef=useRef<HTMLDivElement>(null);
+  useEffect(()=>{
+    if(!open)return;
+    const previous=document.activeElement as HTMLElement|null;
+    const timer=setTimeout(()=>{if(!dialogRef.current?.contains(document.activeElement))dialogRef.current?.focus();},0);
+    return()=>{clearTimeout(timer);if(previous?.isConnected)previous.focus();};
+  },[open]);
   function requestClose(){requestNavigation(()=>{setDirty(id.current,false);closeRef.current();});}
   useEffect(()=>{
     if(!open)return;
@@ -43,14 +50,21 @@ export function Sheet({ open, onClose, title, children,wide=false }: SheetProps)
         onClick={requestClose}
       />
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={id.current+'-title'}
+        tabIndex={-1}
+        onKeyDown={e=>{if(e.key!=='Tab'||modalStack[modalStack.length-1]!==id.current)return;const controls=Array.from(e.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled),a[href],input:not(:disabled),select:not(:disabled),textarea:not(:disabled),summary,[tabindex="0"]')).filter(el=>el.getClientRects().length);if(!controls.length){e.preventDefault();return;}const first=controls[0],last=controls[controls.length-1];if(e.shiftKey&&(document.activeElement===first||document.activeElement===e.currentTarget)){e.preventDefault();last.focus();}else if(!e.shiftKey&&(document.activeElement===last||document.activeElement===e.currentTarget)){e.preventDefault();first.focus();}}}
         className={`relative w-full ${wide?'sm:max-w-6xl':'sm:max-w-md'} bg-white dark:bg-slate-900 rounded-t-2xl sm:rounded-2xl shadow-2xl transition-transform duration-200 ${
           open ? 'translate-y-0' : 'translate-y-full sm:translate-y-0 sm:scale-95'
         } max-h-[90vh] flex flex-col`}
       >
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-slate-700 shrink-0">
           <button aria-label="Back" onClick={requestClose} className="text-cyan-600 text-xs mr-2">← Back</button>
-          <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">{title}</h2>
+          <h2 id={id.current+'-title'} className="text-lg font-semibold text-slate-900 dark:text-slate-100">{title}</h2>
           <button
+            aria-label="Close dialog"
             onClick={requestClose}
             className="p-2 -mr-2 text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
           >

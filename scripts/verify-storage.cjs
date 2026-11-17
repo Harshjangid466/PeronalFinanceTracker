@@ -1,0 +1,20 @@
+// Synthetic ledger only. Exercise the real persistence implementation.
+const fs=require('fs'),path=require('path'),vm=require('vm'),ts=require('typescript'),assert=require('assert/strict');
+function harness(){
+ const values=new Map(),events=[],cache=new Map();let rejectKey='';
+ const localStorage={getItem:k=>values.get(k)??null,setItem:(k,v)=>{if(k===rejectKey)throw Error('Synthetic quota exceeded');values.set(k,v);}};
+ function load(file){file=path.resolve(file);if(cache.has(file))return cache.get(file).exports;const module={exports:{}};cache.set(file,module);vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{module,exports:module.exports,require:p=>p.startsWith('.')?load(path.resolve(path.dirname(file),p+'.ts')):require(p),localStorage,window:{dispatchEvent:e=>events.push(e)},CustomEvent:class{constructor(type,options={}){this.type=type;this.detail=options.detail;}},structuredClone,console,Date,Math,Set,Map});return module.exports;}
+ return {values,events,load,reject:k=>rejectKey=k};
+}
+const key='finance-tracker-data-v2';let checks=0;
+function test(name,fn){fn();checks++;console.log('PASS '+name);}
+function seed(h){const d=h.load('src/data/model.ts').migrateData(h.load('src/data/defaults.ts').getDefaultData());d.transactions=[{id:'synthetic',type:'Revenue Expense',amount:12.34,amountMinor:1234,currency:'INR',date:'2026-11-17',status:'active',customFields:{unknown:'retain'},unknown:'retain'}];d.syntheticUnknown={retain:true};h.values.set(key,JSON.stringify(d));return d;}
+test('A successful primary write is not reported as failed by a redundant legacy write',()=>{const h=harness(),d=seed(h),s=h.load('src/data/storage.ts');s.loadData();h.reject('finance-tracker-data-v1');s.saveData(d,true);assert.equal(JSON.parse(h.values.get(key)).transactions[0].amountMinor,1234);});
+test('Failed primary save throws and leaves the previous ledger intact',()=>{const h=harness(),d=seed(h),s=h.load('src/data/storage.ts');s.loadData();const before=h.values.get(key);d.transactions.push({...d.transactions[0],id:'new'});h.reject(key);assert.throws(()=>s.saveData(d,true));assert.equal(h.values.get(key),before);assert.equal(h.events.at(-1).type,'finance-storage-error');});
+test('Existing data and unknown fields survive save and reopen without a schema change',()=>{const h=harness(),s=h.load('src/data/storage.ts');seed(h);const d=s.loadData();s.saveData(d,true);const reopened=s.loadData();assert.equal(reopened.transactions.length,1);assert.equal(reopened.transactions[0].customFields.unknown,'retain');assert.equal(reopened.syntheticUnknown.retain,true);assert.equal(reopened.transactions[0].date,'2026-11-17');});
+test('An older tab cannot overwrite a ledger changed elsewhere',()=>{const h=harness(),s=h.load('src/data/storage.ts');seed(h);const old=s.loadData(),newer=structuredClone(old);newer.transactions.push({...old.transactions[0],id:'other-tab'});h.values.set(key,JSON.stringify(newer));assert.throws(()=>s.saveData(old,true),/another|changed/i);assert.equal(JSON.parse(h.values.get(key)).transactions.length,2);});
+
+test('A failed migration recovery copy does not prevent opening the original ledger',()=>{const h=harness(),d=seed(h);d.schemaVersion=3;h.values.set(key,JSON.stringify(d));h.reject('finance-tracker-pre-v4-backup');const opened=h.load('src/data/storage.ts').loadData();assert.equal(opened.transactions.length,1);assert.equal(JSON.parse(h.values.get(key)).schemaVersion,3);});
+test('Legacy v1 data and all unknown fields remain available after migration',()=>{const h=harness(),d=seed(h);h.values.delete(key);h.values.set('finance-tracker-data-v1',JSON.stringify(d));const s=h.load('src/data/storage.ts'),opened=s.loadData();assert.equal(opened.transactions[0].amountMinor,1234);assert.equal(opened.syntheticUnknown.retain,true);assert.equal(JSON.parse(h.values.get('finance-tracker-data-v1')).transactions[0].id,'synthetic');assert.equal(JSON.parse(h.values.get(key)).transactions.length,1);});
+
+console.log(checks+' persistence checks passed.');

@@ -30,6 +30,20 @@ Never commit financial backups, `.env` files, service-role keys or personal expo
 
 ## Included features
 
+### Personal analysis
+
+Open **Home → Insights** for **Signals, Vendors, Days and Recurring**. The app highlights frequent/high paid expenses, sharp increases, large Misc purchases, expensive days and likely weekly/monthly patterns. Every finding is based on recorded entries; you decide what to change. Vendor details separate payment frequency, average purchase size and expense credits, and offer hypothetical fewer-payment scenarios. Similar vendor descriptions are not merged automatically.
+
+Large-purchase prompts offer a preview and **Review as CAPEX**. Nothing changes until you choose an asset category and save in the existing transaction editor. Reclassification preserves the ID, amount, date and source, moves the report allocation and does not create savings. Reconciled/linked entries and unavailable statement history are protected. Existing charts, Planning and cloud-consent controls remain under **Open detailed analysis**.
+
+Checks: `npm run test:spending-patterns` and `npm run test:spending-patterns-ui` (Playwright, `PLAYWRIGHT_MODULE` and a running local preview at `PATTERNS_TEST_URL`). Calculations use active INR ledger entries; positive payments determine counts/shares, expense credits reduce net totals, and month comparisons use matched elapsed days. Coverage remains unverified and missing history is never estimated.
+
+Open **Home → Insights → Open detailed analysis → Planning** for a three-month outlook and monthly repeated-payment candidates. The outlook uses the three most recent completed months available for the selected view. Enter expected income or adjust spending to explore a scenario; these controls never edit financial records. Missing history remains unknown. Income remainder is not a bank balance or confirmed savings.
+
+Select **View entries** or a repeated-payment candidate to review its evidence. Candidates are observations, not confirmed subscriptions; their estimated annual cost is not added again to the outlook. All planning calculations run locally.
+
+Checks: `npm run test:personal-analysis` and `npm run test:personal-analysis-ui` (requires Playwright and a running local app; supports `PLAYWRIGHT_MODULE` and `DASHBOARD_TEST_URL`).
+
 - Seven transaction types, integer-paise amounts, dashboard and person ledgers.
 - Editable masters, payment-source mappings, rules and conditional custom fields.
 - Search, edit, soft delete/restore and audit history.

@@ -6,10 +6,16 @@ import { migrateData } from './model';
 
 const STORAGE_KEY_V2 = 'finance-tracker-data-v2';
 const STORAGE_KEY_V1 = 'finance-tracker-data-v1';
+const loadedSnapshots = new Map<string, string | null>();
+function keepMigrationCopy(key:string, raw:string){
+  // Full storage must not prevent opening the untouched primary ledger for export.
+  try{if(!localStorage.getItem(storageName(key)))localStorage.setItem(storageName(key),raw);}catch{/* The original ledger remains intact. */}
+}
 
 export function loadData(): AppData {
   try {
     let raw = localStorage.getItem(storageName(STORAGE_KEY_V2));
+    loadedSnapshots.set(storageName(STORAGE_KEY_V2), raw);
     let isV1 = false;
     if (!raw) {
       raw = localStorage.getItem(storageName(STORAGE_KEY_V1));
@@ -92,9 +98,7 @@ export function loadData(): AppData {
     const mergedPaymentModes = Array.from(new Set([...existingPaymentModes, ...(parsed.schemaVersion === 4 ? [] : DEFAULT_PAYMENT_MODES)]));
 
     // Keep an untouched snapshot before the first v3 load/save.
-    if (parsed.schemaVersion !== 3 && !localStorage.getItem(storageName('finance-tracker-pre-v3-backup'))) {
-      localStorage.setItem(storageName('finance-tracker-pre-v3-backup'), raw);
-    }
+    if (parsed.schemaVersion !== 3 && parsed.schemaVersion !== 4) keepMigrationCopy('finance-tracker-pre-v3-backup',raw);
 
     const result: AppData = {
       ...parsed,
@@ -129,10 +133,10 @@ export function loadData(): AppData {
       saveData(result);
     }
 
-    if (parsed.schemaVersion !== 4 && !localStorage.getItem(storageName('finance-tracker-pre-v4-backup'))) localStorage.setItem(storageName('finance-tracker-pre-v4-backup'),raw);
+    if (parsed.schemaVersion !== 4) keepMigrationCopy('finance-tracker-pre-v4-backup',raw);
     return migrateData(result);
   } catch (err) {
-    console.error('Error loading data from localStorage, falling back to defaults:', err);
+    console.error('Saved ledger could not be opened; original storage was left untouched:', err);
     // Keep corrupt/unreadable content intact rather than silently replacing it.
     throw new Error('Saved data could not be loaded. It has not been replaced. Restore a valid backup to recover.');
   }
@@ -141,15 +145,22 @@ export function loadData(): AppData {
 export function saveData(data: AppData, strict=false): void {
   if(accountWritesBlocked()){if(strict)throw Error("Account data is being removed.");return;}
   try {
+    const key = storageName(STORAGE_KEY_V2);
+    if (loadedSnapshots.has(key) && localStorage.getItem(key) !== loadedSnapshots.get(key)) {
+      throw Error('Saved data changed in another app window. Download a backup of this session, then reopen the app before saving.');
+    }
     // Large imported history lives in IndexedDB. Backups still include it from AppContext.
     const {statementRows: _rows,statementBatches: _batches,...ledger}=data;
     const serialized = JSON.stringify(ledger);
-    localStorage.setItem(storageName(STORAGE_KEY_V2), serialized);
-    // Also keep backward-compatible sync
-    localStorage.setItem(storageName(STORAGE_KEY_V1), serialized);
-  } catch {
-    window.dispatchEvent(new CustomEvent("finance-storage-error", {detail:"Changes could not be saved. Download a backup now; browser storage may be full."}));
-    if(strict)throw Error("Local ledger could not be saved. Cloud acknowledgement was not recorded.");
+    localStorage.setItem(key, serialized);
+    loadedSnapshots.set(key, serialized);
+    // Retain existing legacy/recovery copies, but do not double the growing ledger on every write.
+    window.dispatchEvent(new CustomEvent('finance-storage-saved'));
+  } catch (error) {
+    const message = error instanceof Error && error.message.includes('another app window')
+      ? error.message : 'Changes were not saved. Keep this app open and download a backup; browser storage may be full or unavailable.';
+    window.dispatchEvent(new CustomEvent('finance-storage-error', {detail:message}));
+    if(strict)throw Error(message);
   }
 }
 

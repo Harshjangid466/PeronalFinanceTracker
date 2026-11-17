@@ -67,7 +67,7 @@ export function AccountGate({children}: {children: ReactNode}) {
     if(!copy)localStorage.setItem(accountStorageName('finance-tracker-data-v2',id),JSON.stringify(newAccountData()));
     localStorage.setItem(accountStorageName('finance-account-initialized',id),'true');setReady(true);
   }
-  if(!accountsEnabled)return <>{children}</>;
+  if(!accountsEnabled)return <AccountTabLock id="device-local">{children}</AccountTabLock>;
   const shell=(content:ReactNode)=><main className="min-h-screen bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100 p-6"><section className="mx-auto max-w-md space-y-4"><h1 className="text-xl font-semibold">Account &amp; sync</h1>{content}{message&&<p role="status">{message}</p>}</section></main>;
   if(purging)return shell(<p>Removing deleted account device copies. Close other app tabs and reload if cleanup cannot finish.</p>);
   if(!accountAuth)return shell(<p>Account setup is not configured. Configure the Supabase URL and publishable key before enabling accounts. Existing device data is preserved.</p>);

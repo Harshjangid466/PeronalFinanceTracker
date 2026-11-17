@@ -9,17 +9,20 @@ import {cardKindLabels,cardKind,isCardRow} from '@/data/cardReconciliation';
 import type {StatementRow} from '@/data/statements';
 import type {Transaction} from '@/data/types';
 import {HabitSuggestions} from './HabitSuggestions';
+import {PersonalAnalysis} from './PersonalAnalysis';
+import {SpendingPatterns} from './SpendingPatterns';
 import {Sheet} from './Sheet';
 import {Waterfall,PaymentMatrix,CardTreemap,visualColors} from './FinancialVisuals';
 import './VisualIntelligence.css';
 const CloudIntelligence=lazy(()=>import('./CloudIntelligence').then(m=>({default:m.CloudIntelligence})));
 
 const share=(n:number,total:number)=>total?`${(n/total*100).toFixed(1)}%`:'—';
-const tabs=[['drivers','Drivers'],['petty','Petty payments'],['cards','Cards'],['income','Income'],['review','Review']] as const;
-export function SpendingCoach({month,today,account,onInspect,initialView='drivers',viewRequest=0}:{month:string;today:string;account:string;onInspect:(title:string,rows:Transaction[])=>void;initialView?:'drivers'|'petty'|'cards'|'income'|'review';viewRequest?:number}){
+const tabs=[['drivers','Drivers'],['petty','Petty payments'],['cards','Cards'],['income','Income'],['planning','Planning'],['review','Review']] as const;
+export function SpendingCoach({month,today,account,onInspect,onOpenRecurring,initialView='drivers',viewRequest=0}:{month:string;today:string;account:string;onInspect:(title:string,rows:Transaction[])=>void;onOpenRecurring?:()=>void;initialView?:'drivers'|'petty'|'cards'|'income'|'review';viewRequest?:number}){
  const {allData:data,statementReady,statementError}=useApp();
+ const [showPatterns,setShowPatterns]=useState(!viewRequest);
  const [view,setView]=useState<string>(initialView),[threshold,setThreshold]=useState(10000),[bridgeMode,setBridgeMode]=useState('category'),[reduction,setReduction]=useState(25),[scope,setScope]=useState<'petty'|'card'|'combined'>('combined'),[question,setQuestion]=useState('petty'),[selected,setSelected]=useState(''),[showAnswer,setShowAnswer]=useState(false),[evidence,setEvidence]=useState<{title:string;ids:string[]}|null>(null);
- useEffect(()=>{setView(initialView);if(viewRequest&&initialView==='petty')setThreshold(10000);},[initialView,viewRequest]);
+ useEffect(()=>{setView(initialView);if(viewRequest){setShowPatterns(false);if(initialView==='petty')setThreshold(10000);}},[initialView,viewRequest]);
  const c=useMemo(()=>spendingCoach(data,month,today,account,threshold),[data,month,today,account,threshold]),s=c.stats;
  const findings=useMemo(()=>insightFeed(c,data,account,statementError?'error':statementReady?'ready':'loading'),[c,data,account,statementReady,statementError]),reviews=findings.filter(f=>f.kind==='review'),selectedFinding=findings.find(f=>f.id===selected);
  const scenario=reductionScenario(c.petty,c.cards,reduction,scope),answer=answerCoach(question,c),cohorts=disjointSpending(c.petty,c.cards),cohortTotal=cohorts.reduce((n,g)=>n+g.amountMinor,0);
@@ -40,10 +43,14 @@ export function SpendingCoach({month,today,account,onInspect,initialView='driver
  const changeCohort=(title:string,rows:Transaction[])=>inspect(title,rows);
  function shiftTab(e:React.KeyboardEvent){if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;e.preventDefault();const i=tabs.findIndex(t=>t[0]===view),next=e.key==='Home'?0:e.key==='End'?tabs.length-1:(i+(e.key==='ArrowRight'?1:-1)+tabs.length)%tabs.length;setView(tabs[next][0]);(e.currentTarget.parentElement?.querySelectorAll('button')[next] as HTMLButtonElement)?.focus();}
  return <section className="fin-lab" aria-label="Spending coach">
-  <header className="fin-heading"><div><span className="fin-eyebrow">Financial intelligence</span><h2>See the drivers. Find the leaks.</h2></div><span className="fin-local">On-device analytics</span></header>
+  <header className="fin-heading"><div><h2>Understand your spending</h2></div><span className="fin-local">On-device analytics</span></header>
+  <div className="patterns-mode-switch"><button onClick={()=>setShowPatterns(!showPatterns)}>{showPatterns?'Open detailed analysis':'Back to spending patterns'}</button></div>
+  <div className="patterns-main" hidden={!showPatterns}><SpendingPatterns data={data} month={month} today={today} account={account} onInspect={inspect} onOpenRecurring={onOpenRecurring} historyStatus={statementError?'error':statementReady?'ready':'loading'}/></div>
+  <div className="patterns-advanced" hidden={showPatterns}>
   <div className="fin-week"><button onClick={()=>inspect('Coach: week in focus',s.weekly)}><small>Week of {formatDate(s.weekStart)}</small><strong>{money(s.weeklyMinor)}</strong></button><div><small>Petty this week</small><b>{money(sumMinor(c.weeklyPetty))}</b></div><div><small>Cards this week</small><b>{money(sumMinor(c.weeklyCards))}</b></div><button onClick={()=>setView('review')}><small>Review signals</small><b className="fin-amber">{reviews.length}</b></button></div>
   <div className="fin-nav" role="tablist" aria-label="Financial analysis views">{tabs.map(([id,label])=><button key={id} id={'fin-tab-'+id} role="tab" aria-label={label} aria-selected={view===id} tabIndex={view===id?0:-1} aria-controls="fin-analysis-panel" onKeyDown={shiftTab} onClick={()=>setView(id)}>{label}{id==='review'&&reviews.length>0&&<span>{reviews.length}</span>}</button>)}</div>
   <div role="tabpanel" id="fin-analysis-panel" aria-labelledby={'fin-tab-'+view}>
+  {view==='planning'&&<PersonalAnalysis key={month+':'+account} data={data} month={month} today={today} account={account} onInspect={inspect}/>}
   {view==='drivers'&&<div className="fin-view">
    <div className="fin-chart-heading"><div><h3>{c.previous.length?'What moved your spending?':'How recorded spending is composed'}</h3><span>{c.previous.length?compare:'No recorded comparison expenses'}</span></div><div className="fin-delta"><strong>{c.previous.length&&delta>0?'+':''}{money(c.previous.length?delta:s.expenseMinor)}</strong><small>{c.previous.length?'change in recorded spending':'recorded personal expenses'}</small></div></div>
    <div className="fin-chart-controls" data-auto-save><label>Explain by<select aria-label="Spending driver view" value={bridgeMode} onChange={e=>setBridgeMode(e.target.value)}><option value="category">Category contribution</option>{frequency!==undefined&&<option value="frequency">Frequency vs payment size</option>}</select></label><button className="fin-text-button" onClick={()=>setSelected('spending-bridge')}>How it is calculated</button></div>
@@ -76,5 +83,6 @@ export function SpendingCoach({month,today,account,onInspect,initialView='driver
   <Sheet title={selectedFinding?.title||'Analysis details'} open={!!selectedFinding} onClose={()=>setSelected('')} wide>{selectedFinding&&<div className="fin-detail"><p>{selectedFinding.explanation}</p><dl>{selectedFinding.basis.map((b,i)=><div key={i}><dt>{b.label}</dt><dd>{b.amountMinor===undefined?b.text:money(b.amountMinor)}</dd></div>)}</dl><p><b>Next step:</b> {selectedFinding.nextStep}</p><div>{selectedFinding.rows.length>0&&<button className="fin-text-button" onClick={()=>inspect(selectedFinding.title,selectedFinding.rows)}>Review {selectedFinding.rows.length} supporting entries</button>}{selectedFinding.sources.length>0&&<button className="fin-text-button" onClick={()=>sourceEvidence(selectedFinding.title,selectedFinding.sources)}>Review {selectedFinding.sources.length} source movements</button>}</div></div>}</Sheet>
   <Sheet title="Answer evidence" open={showAnswer} onClose={()=>setShowAnswer(false)}><div className="fin-detail"><p>{answer.text}</p>{answer.rows.length>0&&<button className="fin-text-button" onClick={()=>inspect('Answer evidence',answer.rows)}>View supporting entries</button>}{answer.sources.length>0&&<button className="fin-text-button" onClick={()=>sourceEvidence('Answer source evidence',answer.sources)}>View supporting statement movements</button>}</div></Sheet>
   <Sheet title={evidence?.title||'Source evidence'} open={!!evidence} onClose={()=>setEvidence(null)} wide><div className="fin-detail"><small>Read-only source evidence. To classify or offset: Transactions → Imports &amp; review → select the statement.</small>{!evidenceRows.length&&<p>No source movements in this view.</p>}{evidenceRows.map(r=><article key={r.id}><b>{r.vendor}</b><p>{formatDate(r.date)} · {r.account} · {r.direction==='credit'?'Credit +':'Debit −'}{money(r.amountMinor)}</p><small>{isCardRow(r,data.statementBatches||[])?`${r.cardKind?'Confirmed':'Suggested'} ${cardKindLabels[cardKind(r)]}`:'Statement movement'} · {r.note}</small><p>Reference: {r.reference||'Not supplied'} · {r.cardHold?'Held: '+r.cardHold.reason:r.status}</p>{r.transactionId&&data.transactions.some(t=>t.id===r.transactionId&&t.status==='active')&&<button className="fin-text-button" onClick={()=>{setEvidence(null);inspect('Linked ledger entry',data.transactions.filter(t=>t.id===r.transactionId&&t.status==='active'));}}>Review linked ledger entry</button>}</article>)}</div></Sheet>
+  </div>
  </section>;
 }

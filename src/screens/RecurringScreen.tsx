@@ -105,7 +105,7 @@ export function RecurringScreen() {
   }
 
   return (
-    <div className="px-4 pt-6 pb-28 max-w-md mx-auto space-y-5">
+    <div className="recurring-screen px-4 pt-6 pb-28 max-w-4xl mx-auto space-y-5">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Recurring</h1>

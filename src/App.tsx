@@ -12,12 +12,20 @@ import { SettingsScreen } from '@/screens/SettingsScreen';
 import { RecurringScreen } from '@/screens/RecurringScreen';
 import {NavigationGuard,requestNavigation,modalStack,hasUnsavedChanges} from '@/components/NavigationGuard';
 import { ChevronLeft } from 'lucide-react';
+import {StorageStatus} from '@/components/StorageStatus';
+import {DataRecoveryBoundary} from '@/components/LocalRecovery';
 
 type View = TabId | 'recurring';
+function launchView():View{
+  if(sharedPdfLaunch)return 'transactions';
+  const view=window.location.hash.slice(1);
+  return ['home','transactions','add','recover','settings','recurring'].includes(view)?view as View:'home';
+}
 
 function AppContent() {
-  const [tab, setTab] = useState<View>(sharedPdfLaunch?'transactions':'home');
-  const [transactionsSeen,setTransactionsSeen]=useState(!!sharedPdfLaunch);
+  const [tab, setTab] = useState<View>(launchView);
+  const [transactionsSeen,setTransactionsSeen]=useState(()=>launchView()==='transactions');
+  const [importRequest,setImportRequest]=useState(0);
 
   const currentView=useRef<View>(tab);currentView.current=tab;
   function navigate(view: View) {
@@ -27,10 +35,14 @@ function AppContent() {
   function goBack() {
     navigate('home');
   }
+  function navigateHome(view:View|'imports'){
+    if(view==='imports')requestNavigation(()=>{window.history.pushState({financeView:'transactions'},'','#transactions');setTransactionsSeen(true);setTab('transactions');setImportRequest(n=>n+1);});
+    else navigate(view);
+  }
 
   useEffect(()=>{
     // Allow the bank-capture sign-in callback to be consumed before cleaning the URL.
-    if(!window.location.hash.includes('access_token=')&&!new URLSearchParams(window.location.search).has('code'))window.history.replaceState({financeView:sharedPdfLaunch?'transactions':'home'},'',window.location.pathname);
+    if(!window.location.hash.includes('access_token=')&&!new URLSearchParams(window.location.search).has('code'))window.history.replaceState({financeView:currentView.current},'',window.location.pathname+`#${currentView.current}`);
     const back=()=>{if(modalStack.length)return;const previous=window.history.state?.financeView||'home';if(hasUnsavedChanges())window.history.pushState({financeView:currentView.current},'',`#${currentView.current}`);requestNavigation(()=>{window.history.replaceState({financeView:previous},'',`#${previous}`);setTab(previous);});};
     const escape=(e:KeyboardEvent)=>{if(e.key==='Escape'&&!modalStack.length)requestNavigation(()=>{setTab('home');});};
     window.addEventListener('popstate',back);window.addEventListener('keydown',escape);
@@ -39,10 +51,10 @@ function AppContent() {
   const isRecurring = tab === 'recurring';
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
+    <div className="app-shell min-h-screen bg-slate-50 dark:bg-slate-950">
       <NavigationGuard />
+      <StorageStatus />
       <CloudSyncPanel />
-      {tab!=='home'&&!isRecurring&&<div className="max-w-md mx-auto px-4 pt-3"><button className="text-xs text-cyan-600" onClick={goBack}>← Back</button></div>}
       {isRecurring ? (
         <div>
           <div className="flex items-center gap-2 px-4 pt-4">
@@ -54,14 +66,14 @@ function AppContent() {
         </div>
       ) : (
         <>
-          {tab === 'home' && <HomeScreen onNavigate={navigate} />}
+          {tab === 'home' && <HomeScreen onNavigate={navigateHome} />}
           {tab === 'add' && <AddExpenseScreen />}
           {tab === 'recover' && <RecoverScreen />}
           {tab === 'settings' && <SettingsScreen />}
         </>
       )}
 
-      {transactionsSeen&&<div hidden={tab!=='transactions'}><TransactionsScreen active={tab==='transactions'} sharedLaunch={sharedPdfLaunch}/></div>}
+      {transactionsSeen&&<div hidden={tab!=='transactions'}><TransactionsScreen active={tab==='transactions'} sharedLaunch={sharedPdfLaunch} importRequest={importRequest}/></div>}
       <BottomNav active={isRecurring ? 'home' : tab} onChange={(t) => navigate(t)} />
     </div>
   );
@@ -69,8 +81,8 @@ function AppContent() {
 
 export default function App() {
   return (
-    <AccountGate><AppProvider>
+    <AccountGate><DataRecoveryBoundary><AppProvider>
       <AppContent />
-    </AppProvider></AccountGate>
+    </AppProvider></DataRecoveryBoundary></AccountGate>
   );
 }
