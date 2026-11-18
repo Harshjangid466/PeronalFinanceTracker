@@ -2,6 +2,7 @@ import {storageName,accountWritesBlocked} from './accountStorage';
 import {validateStatementRows,validateStatementBatches,type StatementRow,type StatementBatch} from './statements';
 const DB='finance-statement-history';
 function open():Promise<IDBDatabase>{return new Promise((resolve,reject)=>{const r=indexedDB.open(storageName(DB),1);r.onupgradeneeded=()=>r.result.createObjectStore('archive');r.onerror=()=>reject(r.error);r.onsuccess=()=>resolve(r.result);});}
+export {open as openStatementDatabase};
 export async function loadStatementArchive():Promise<{rows:StatementRow[];batches:StatementBatch[]}>{
  const db=await open();try{return await new Promise((resolve,reject)=>{const t=db.transaction('archive','readonly');const r=t.objectStore('archive').get('current');r.onsuccess=()=>{try{const v=r.result||{rows:[],batches:[]};validateStatementRows(v.rows);validateStatementBatches(v.batches);resolve(v);}catch(e){reject(e);}};r.onerror=()=>reject(r.error);});}finally{db.close();}
 }

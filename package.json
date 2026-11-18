@@ -12,6 +12,7 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.app.json",
     "test:storage": "node scripts/verify-storage.cjs",
+    "test:storage-repair-ui": "node scripts/verify-storage-repair-ui.mjs",
     "test:spending-patterns": "node scripts/verify-spending-patterns.cjs",
     "test:spending-patterns-ui": "node scripts/verify-spending-patterns-ui.mjs",
     "test:redesign-ui": "node scripts/verify-persistence-redesign-ui.mjs",

@@ -1,10 +1,10 @@
 // Synthetic ledger only. Exercise the real persistence implementation.
 const fs=require('fs'),path=require('path'),vm=require('vm'),ts=require('typescript'),assert=require('assert/strict');
 function harness(){
- const values=new Map(),events=[],cache=new Map();let rejectKey='';
- const localStorage={getItem:k=>values.get(k)??null,setItem:(k,v)=>{if(k===rejectKey)throw Error('Synthetic quota exceeded');values.set(k,v);}};
+ const values=new Map(),events=[],cache=new Map();let rejectKey='',rejection=Error('Synthetic quota exceeded');
+ const localStorage={getItem:k=>values.get(k)??null,setItem:(k,v)=>{if(k===rejectKey)throw rejection;values.set(k,v);}};
  function load(file){file=path.resolve(file);if(cache.has(file))return cache.get(file).exports;const module={exports:{}};cache.set(file,module);vm.runInNewContext(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{module,exports:module.exports,require:p=>p.startsWith('.')?load(path.resolve(path.dirname(file),p+'.ts')):require(p),localStorage,window:{dispatchEvent:e=>events.push(e)},CustomEvent:class{constructor(type,options={}){this.type=type;this.detail=options.detail;}},structuredClone,console,Date,Math,Set,Map});return module.exports;}
- return {values,events,load,reject:k=>rejectKey=k};
+ return {values,events,load,reject:(k,error)=>{rejectKey=k;if(error)rejection=error;}};
 }
 const key='finance-tracker-data-v2';let checks=0;
 function test(name,fn){fn();checks++;console.log('PASS '+name);}
@@ -17,4 +17,5 @@ test('An older tab cannot overwrite a ledger changed elsewhere',()=>{const h=har
 test('A failed migration recovery copy does not prevent opening the original ledger',()=>{const h=harness(),d=seed(h);d.schemaVersion=3;h.values.set(key,JSON.stringify(d));h.reject('finance-tracker-pre-v4-backup');const opened=h.load('src/data/storage.ts').loadData();assert.equal(opened.transactions.length,1);assert.equal(JSON.parse(h.values.get(key)).schemaVersion,3);});
 test('Legacy v1 data and all unknown fields remain available after migration',()=>{const h=harness(),d=seed(h);h.values.delete(key);h.values.set('finance-tracker-data-v1',JSON.stringify(d));const s=h.load('src/data/storage.ts'),opened=s.loadData();assert.equal(opened.transactions[0].amountMinor,1234);assert.equal(opened.syntheticUnknown.retain,true);assert.equal(JSON.parse(h.values.get('finance-tracker-data-v1')).transactions[0].id,'synthetic');assert.equal(JSON.parse(h.values.get(key)).transactions.length,1);});
 
+test('Cross-realm quota errors expose repair; denied storage does not claim quota',()=>{const h=harness(),d=seed(h),s=h.load('src/data/storage.ts');s.loadData();h.reject(key,{name:'QuotaExceededError'});assert.throws(()=>s.saveData(d,true),/local storage is full/);assert.equal(s.isStorageQuotaFailure(),true);h.reject(key,{name:'SecurityError'});assert.throws(()=>s.saveData(d,true),/SecurityError/);assert.equal(s.isStorageQuotaFailure(),false);});
 console.log(checks+' persistence checks passed.');

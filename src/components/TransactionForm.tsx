@@ -1,5 +1,6 @@
 import {builtinTypeId,configuredTypes,categoriesForType,categoryMaster} from '@/data/typeCatalog';
-import {uid} from '@/data/storage';
+import {uid,isStorageQuotaFailure} from '@/data/storage';
+import {StorageRepair} from './StorageRepair';
 import {suggestMerchantCategory,resolveSuggestion,rememberMerchant,categoryUnavailable} from '@/data/merchantCategories';
 import {defaultImportHabits} from '@/data/approvedHabits';
 import {MerchantSuggestionCard} from './MerchantSuggestionCard';
@@ -776,6 +777,7 @@ export function TransactionForm({
       {/* Submit / Action Buttons */}
       <div className="pt-2 space-y-2">
         {saveError&&<p className="entry-save-error" role="alert">{saveError}</p>}
+        {saveError&&isStorageQuotaFailure()&&<StorageRepair/>}
         <button
           type="button"
           onClick={handleSubmit}

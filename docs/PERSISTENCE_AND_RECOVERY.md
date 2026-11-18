@@ -1,5 +1,15 @@
 # Saving and recovery
 
+## Storage-full repair (18 November 2026)
+
+The first persistence release prevents false save success but cannot by itself free an already full localStorage area. Downloading a JSON backup does not free that area. A real browser-quota regression reproduces rejected saves before and after backup export.
+
+On a quota error, the transaction form now offers **Repair storage safely**. It moves only the legacy v1 and pre-v3/pre-v4 recovery copies into additional records in the existing, account-scoped statement-history database. It waits for the write transaction to commit, reads the exact strings back, and compares them before removing the corresponding localStorage copies. A copy changed concurrently is retained. The current v2 ledger, statement archive, unknown fields, logs, unrelated keys and unsaved form are not rewritten by repair. Archived copies remain individually downloadable from Backup & restore. They are recovery snapshots, separate from the ordinary complete backup of the current ledger.
+
+Repair does not post an entry: explicitly retry Save transaction afterward. It does not claim success when no old copies exist or the archive cannot be verified. If the current ledger alone exceeds localStorage capacity, or browser storage is unavailable, this repair cannot resolve that condition. The actual browser exception category is now shown to distinguish quota from other failures. A reported 2.3 MB backup suggests possible capacity pressure but does not establish the phone's exact failure.
+
+`npm run test:storage-repair-ui` checks real quota exhaustion, backup not fixing quota, byte-for-byte recovery preservation, archive abort, concurrent replacement, mobile repair/retry, exactly one posted entry, reload, and recovery download using synthetic data. Physical iPhone confirmation remains required.
+
 The personal ledger stays under its existing browser-storage key. This change does not rename the origin, manifest identity, transaction schema or IndexedDB statement archive. Existing IDs, dates, signed integer paise, rules, action history and unknown fields are retained.
 
 Ledger mutations now write synchronously before application state or save success is published. A rejected write leaves the previous ledger intact and the transaction form open. Backup export remains available even if recording its audit entry fails. Import/restore summaries and their audit records are committed together. The legacy ledger is still readable and existing recovery snapshots are retained; new saves no longer mirror the entire growing ledger into v1.

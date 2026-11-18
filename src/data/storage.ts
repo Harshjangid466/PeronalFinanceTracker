@@ -7,6 +7,8 @@ import { migrateData } from './model';
 const STORAGE_KEY_V2 = 'finance-tracker-data-v2';
 const STORAGE_KEY_V1 = 'finance-tracker-data-v1';
 const loadedSnapshots = new Map<string, string | null>();
+let quotaFailure=false;
+export const isStorageQuotaFailure=()=>quotaFailure;
 function keepMigrationCopy(key:string, raw:string){
   // Full storage must not prevent opening the untouched primary ledger for export.
   try{if(!localStorage.getItem(storageName(key)))localStorage.setItem(storageName(key),raw);}catch{/* The original ledger remains intact. */}
@@ -143,6 +145,7 @@ export function loadData(): AppData {
 }
 
 export function saveData(data: AppData, strict=false): void {
+  quotaFailure=false;
   if(accountWritesBlocked()){if(strict)throw Error("Account data is being removed.");return;}
   try {
     const key = storageName(STORAGE_KEY_V2);
@@ -157,8 +160,13 @@ export function saveData(data: AppData, strict=false): void {
     // Retain existing legacy/recovery copies, but do not double the growing ledger on every write.
     window.dispatchEvent(new CustomEvent('finance-storage-saved'));
   } catch (error) {
+    // DOMException is not an Error instance in every browser/realm.
+    const name=error&&typeof error==='object'&&'name' in error&&typeof error.name==='string'?error.name:'UnknownError';
+    quotaFailure=name==='QuotaExceededError'||name==='NS_ERROR_DOM_QUOTA_REACHED'||error instanceof Error&&/quota/i.test(error.message);
     const message = error instanceof Error && error.message.includes('another app window')
-      ? error.message : 'Changes were not saved. Keep this app open and download a backup; browser storage may be full or unavailable.';
+      ? error.message : quotaFailure
+        ? 'Changes were not saved: browser local storage is full (QuotaExceededError). Download a backup, then use Repair storage safely and retry Save transaction.'
+        : `Changes were not saved (${name}). Keep this entry open and download a backup; browser storage may be unavailable.`;
     window.dispatchEvent(new CustomEvent('finance-storage-error', {detail:message}));
     if(strict)throw Error(message);
   }
